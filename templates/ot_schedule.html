@@ -126,14 +126,40 @@
   </div>
   {% endif %}
 
-  <!-- 신청서 버튼 -->
-  <a href="/ot_schedule/preview?week={{ ref_ds }}"
-     style="display:block; width:100%; background:#1565C0; color:white; border:none;
-            border-radius:12px; padding:14px; font-size:15px; font-weight:700;
-            text-align:center; margin-bottom:8px">
-    📄 휴일 특근 신청서 보기 · 저장
-  </a>
-  <div class="t2 fs11 text-center mb-2">이번 주 신청서를 이미지 또는 Excel로 내보낼 수 있습니다</div>
+  <!-- 신청서 버튼 — 결재라인(공장) 선택 -->
+  <div class="sec-lbl" style="margin-top:4px">📄 휴일 특근 신청서</div>
+  <div class="c-card mb-2" style="padding:14px 16px">
+    <div class="t2 fs12 mb-2" style="font-weight:600">결재라인 선택</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px">
+      <a id="btn-mj" href="/ot_schedule/preview?week={{ ref_ds }}&fac=MJ"
+         onclick="selectFac('MJ')"
+         style="display:block; border:2px solid #1565C0; background:#1565C020;
+                border-radius:10px; padding:12px; text-align:center; text-decoration:none;
+                transition:all 0.15s" id="btn-mj">
+        <div style="font-size:20px; margin-bottom:4px">🏭</div>
+        <div style="font-weight:700; font-size:14px; color:#60A5FA">MJ 1공장</div>
+        <div style="font-size:10px; color:#94A3B8; margin-top:2px">이광희 → 김신욱</div>
+      </a>
+      <a id="btn-scs" href="/ot_schedule/preview?week={{ ref_ds }}&fac=SCS"
+         onclick="selectFac('SCS')"
+         style="display:block; border:2px solid var(--border); background:var(--card);
+                border-radius:10px; padding:12px; text-align:center; text-decoration:none;
+                transition:all 0.15s">
+        <div style="font-size:20px; margin-bottom:4px">🏭</div>
+        <div style="font-weight:700; font-size:14px; color:var(--text2)">SCS 2공장</div>
+        <div style="font-size:10px; color:#94A3B8; margin-top:2px">이현승 → 김멋진</div>
+      </a>
+    </div>
+    <div id="preview-link-wrap" style="display:none">
+      <a id="preview-link" href="#"
+         style="display:block; width:100%; background:#1565C0; color:white;
+                border-radius:10px; padding:12px; font-size:14px; font-weight:700;
+                text-align:center; text-decoration:none">
+        📄 신청서 보기 · 저장
+      </a>
+    </div>
+    <div id="fac-hint" class="t2 fs11 text-center">위에서 공장을 선택하면 신청서로 이동합니다</div>
+  </div>
 
   <div class="t2 fs11 text-end mb-3">업데이트: {{ updated }}</div>
 </div>
@@ -149,6 +175,33 @@
   document.getElementById('prevWeekBtn').href = '/ot_schedule?week=' + addDays(ref, -7);
   document.getElementById('nextWeekBtn').href = '/ot_schedule?week=' + addDays(ref, 7);
 })();
+
+var _selFac = null;
+function selectFac(fac) {
+  _selFac = fac;
+  var mj  = document.getElementById('btn-mj');
+  var scs = document.getElementById('btn-scs');
+  var ref = '{{ ref_ds }}';
+  if (fac === 'MJ') {
+    mj.style.borderColor  = '#1565C0';
+    mj.style.background   = '#1565C020';
+    mj.querySelector('div:nth-child(2)').style.color = '#60A5FA';
+    scs.style.borderColor = 'var(--border, #334155)';
+    scs.style.background  = 'var(--card, #1E293B)';
+    scs.querySelector('div:nth-child(2)').style.color = '#94A3B8';
+  } else {
+    scs.style.borderColor = '#7C3AED';
+    scs.style.background  = '#7C3AED20';
+    scs.querySelector('div:nth-child(2)').style.color = '#A78BFA';
+    mj.style.borderColor  = 'var(--border, #334155)';
+    mj.style.background   = 'var(--card, #1E293B)';
+    mj.querySelector('div:nth-child(2)').style.color = '#94A3B8';
+  }
+  var link = '/ot_schedule/preview?week=' + ref + '&fac=' + fac;
+  document.getElementById('preview-link').href = link;
+  document.getElementById('preview-link-wrap').style.display = 'block';
+  document.getElementById('fac-hint').style.display = 'none';
+}
 </script>
 
 {% endblock %}
