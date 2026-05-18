@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+<div style="text-align:center; padding:60px 24px">
+  <div style="font-size:48px">⚠️</div>
+  <div style="font-size:18px; font-weight:700; margin-top:16px">오류 발생</div>
+  <div class="t2 fs13" style="margin-top:8px; word-break:break-all">{{ error }}</div>
+  <button onclick="location.reload()"
+    style="margin-top:24px; background:var(--accent); color:white;
+           border:none; border-radius:10px; padding:10px 28px; font-size:14px; cursor:pointer">
+    다시 시도
+  </button>
+</div>
+{% endblock %}

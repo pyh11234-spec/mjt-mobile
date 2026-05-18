@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: mjt-mobile
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: GOOGLE_CREDS_JSON
+        sync: false

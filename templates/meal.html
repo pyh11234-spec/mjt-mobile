@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+{% set page = 'meal' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">식수 현황</div>
+    <div class="pg-sub">{{ ds }}</div>
+  </div>
+  <button class="btn-ref" onclick="doRefresh()">↺ 새로고침</button>
+</div>
+
+<div class="px-3 pt-3">
+
+  <!-- 날짜 선택 -->
+  <div style="margin-bottom:14px">
+    <input type="date" id="dp" value="{{ ds }}"
+      style="width:100%; background:var(--card); color:var(--text);
+             border:1px solid var(--border); border-radius:10px;
+             padding:8px 12px; font-size:14px"
+      onchange="location.href='/meal?date='+this.value">
+  </div>
+
+  <!-- 중식 사전신청 -->
+  <div class="c-card mb-3">
+    <div class="c-card-hd">
+      <span class="title">🍚 중식 사전신청</span>
+      <span class="badge-cnt" style="background:#0284C7">{{ lunch_req|length }}명</span>
+    </div>
+    {% if lunch_req %}
+    <div class="scroll-list">
+      {% for r in lunch_req %}
+      <div class="c-row" style="{% if not loop.last %}border-bottom:1px solid var(--border){% endif %}">
+        <span style="font-weight:600">{{ r[4] if r|length > 4 else '?' }}</span>
+        <span class="t2 fs12" style="margin-left:auto">{{ r[5] if r|length > 5 else '' }}</span>
+        <span class="t2 fs11">{{ r[1] if r|length > 1 else '' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">신청 없음</div>
+    {% endif %}
+  </div>
+
+  <!-- 중식 실식수 -->
+  <div class="c-card mb-3">
+    <div class="c-card-hd">
+      <span class="title">✅ 중식 실식수</span>
+      <span class="badge-cnt" style="background:#059669">{{ lunch_real|length }}명</span>
+    </div>
+    {% if lunch_real %}
+    <div class="scroll-list">
+      {% for r in lunch_real %}
+      <div class="c-row" style="{% if not loop.last %}border-bottom:1px solid var(--border){% endif %}">
+        <span style="font-weight:600">{{ r[4] if r|length > 4 else '?' }}</span>
+        <span class="t2 fs12" style="margin-left:auto">{{ r[5] if r|length > 5 else '' }}</span>
+        <span class="t2 fs11">{{ r[1] if r|length > 1 else '' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">체크인 없음</div>
+    {% endif %}
+  </div>
+
+  <!-- 저녁 도시락 -->
+  <div class="c-card mb-3">
+    <div class="c-card-hd">
+      <span class="title">📦 저녁 도시락</span>
+      <span class="badge-cnt" style="background:#D97706">
+        남 {{ dinner_m|length }} / 여 {{ dinner_f|length }}
+      </span>
+    </div>
+    {% if dinner_m or dinner_f %}
+    <div class="scroll-list">
+      {% for r in dinner_m %}
+      <div class="c-row" style="{% if not loop.last or dinner_f %}border-bottom:1px solid var(--border){% endif %}">
+        <span style="font-size:12px; color:#60A5FA">남</span>
+        <span style="font-weight:600">{{ r[3] if r|length > 3 else '?' }}</span>
+        <span class="t2 fs12" style="margin-left:auto">{{ r[4] if r|length > 4 else '' }}</span>
+      </div>
+      {% endfor %}
+      {% for r in dinner_f %}
+      <div class="c-row" style="{% if not loop.last %}border-bottom:1px solid var(--border){% endif %}">
+        <span style="font-size:12px; color:#F472B6">여</span>
+        <span style="font-weight:600">{{ r[3] if r|length > 3 else '?' }}</span>
+        <span class="t2 fs12" style="margin-left:auto">{{ r[4] if r|length > 4 else '' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">신청 없음</div>
+    {% endif %}
+  </div>
+
+  <!-- 특근 식사 -->
+  <div class="c-card mb-3">
+    <div class="c-card-hd">
+      <span class="title">🔧 특근 식사</span>
+      <span class="badge-cnt" style="background:#7C3AED">
+        구내 {{ wkend_g|length }} / 중국집 {{ wkend_c|length }}
+      </span>
+    </div>
+    {% if wkend_g or wkend_c %}
+    <div class="scroll-list">
+      {% for r in wkend_g %}
+      <div class="c-row" style="{% if not loop.last or wkend_c %}border-bottom:1px solid var(--border){% endif %}">
+        <span style="font-size:11px; padding:1px 6px; border-radius:4px; background:#1E3A5F; color:#60A5FA">구내</span>
+        <span style="font-weight:600">{{ r[3] if r|length > 3 else '?' }}</span>
+        <span class="t2 fs12" style="margin-left:auto">{{ r[4] if r|length > 4 else '' }}</span>
+      </div>
+      {% endfor %}
+      {% for r in wkend_c %}
+      <div class="c-row" style="{% if not loop.last %}border-bottom:1px solid var(--border){% endif %}">
+        <span style="font-size:11px; padding:1px 6px; border-radius:4px; background:#2D1B4E; color:#C084FC">중국집</span>
+        <span style="font-weight:600">{{ r[3] if r|length > 3 else '?' }}</span>
+        <span class="t2 fs12" style="margin-left:auto">{{ r[4] if r|length > 4 else '' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">신청 없음</div>
+    {% endif %}
+  </div>
+
+  <!-- 외부 손님 -->
+  <div class="c-card mb-3">
+    <div class="c-card-hd">
+      <span class="title">👤 외부 손님</span>
+      <span class="badge-cnt" style="background:#059669">{{ guests|length }}명</span>
+    </div>
+    {% if guests %}
+    <div class="scroll-list">
+      {% for r in guests %}
+      <div style="padding:10px 16px; {% if not loop.last %}border-bottom:1px solid var(--border){% endif %}">
+        <div style="display:flex; justify-content:space-between; font-size:13px">
+          <span style="font-weight:600">{{ r[7] if r|length > 7 else r[4] if r|length > 4 else '?' }}</span>
+          <span class="t2">{{ r[6] if r|length > 6 else '' }}</span>
+        </div>
+        <div class="t2 fs11" style="margin-top:2px">
+          담당: {{ r[4] if r|length > 4 else '' }}
+          {% if r|length > 8 and r[8] %}&nbsp;·&nbsp;{{ r[8] }}{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">없음</div>
+    {% endif %}
+  </div>
+
+  <div class="t2 fs11 text-end mb-3">업데이트: {{ updated }}</div>
+</div>
+
+{% endblock %}

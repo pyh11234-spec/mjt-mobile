@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% set page = 'home' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">MJT 통합 현황</div>
+    <div class="pg-sub">{{ today }} ({{ weekday }})</div>
+  </div>
+  <button class="btn-ref" onclick="doRefresh()">↺ 새로고침</button>
+</div>
+
+<div class="px-3 pt-3">
+
+  <!-- 근태 KPI -->
+  <div class="sec-lbl">{{ year }}년 {{ '%02d'|format(month) }}월 근태</div>
+  <div class="c-card mb-3">
+    <div class="row g-0 text-center">
+      <div class="col-4" style="padding: 16px 0; border-right: 1px solid var(--border)">
+        <div class="kpi-val" style="color:#60A5FA">{{ n_emps }}</div>
+        <div class="kpi-lbl">총 인원</div>
+      </div>
+      <div class="col-4" style="padding: 16px 0; border-right: 1px solid var(--border)">
+        <div class="kpi-val" style="color:#FBBF24">{{ total_ot }}H</div>
+        <div class="kpi-lbl">연장근로 합계</div>
+      </div>
+      <div class="col-4" style="padding: 16px 0">
+        <div class="kpi-val" style="color:{% if n_danger+n_max64 > 0 %}#EF4444{% else %}#22C55E{% endif %}">
+          {{ n_danger + n_max64 }}
+        </div>
+        <div class="kpi-lbl">52H 초과 인원</div>
+      </div>
+    </div>
+
+    {% if n_max64 > 0 or n_danger > 0 or n_warn > 0 %}
+    <div style="border-top: 1px solid var(--border); padding: 10px 16px; font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap">
+      {% if n_max64  > 0 %}<span><span class="dot dot-max64  me-1" style="display:inline-block"></span>64H 초과 <strong style="color:#EF4444">{{ n_max64 }}명</strong></span>{% endif %}
+      {% if n_danger > 0 %}<span><span class="dot dot-danger me-1" style="display:inline-block"></span>52H 초과 <strong style="color:#F87171">{{ n_danger }}명</strong></span>{% endif %}
+      {% if n_warn   > 0 %}<span><span class="dot dot-warn   me-1" style="display:inline-block"></span>경고 <strong style="color:#F97316">{{ n_warn }}명</strong></span>{% endif %}
+    </div>
+    {% endif %}
+
+    <div style="padding: 8px 16px; border-top: 1px solid var(--border)">
+      <a href="/overtime" style="color: var(--accent); font-size: 12px">잔업·특근 상세 보기 →</a>
+    </div>
+  </div>
+
+  <!-- 오늘 식수 요약 -->
+  <div class="sec-lbl">오늘 식수 현황</div>
+  <div class="c-card mb-3">
+    <div class="row g-0">
+
+      <div class="col-6" style="padding: 14px 16px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border)">
+        <div style="font-size: 11px; color: var(--text2); margin-bottom: 4px">🍚 중식 사전신청</div>
+        <div style="font-size: 24px; font-weight: 700; color: #0EA5E9">{{ n_lunch_req }}<span style="font-size:14px; font-weight:400; color:var(--text2)"> 명</span></div>
+      </div>
+
+      <div class="col-6" style="padding: 14px 16px; border-bottom: 1px solid var(--border)">
+        <div style="font-size: 11px; color: var(--text2); margin-bottom: 4px">✅ 중식 실식수</div>
+        <div style="font-size: 24px; font-weight: 700; color: #22C55E">{{ n_lunch_real }}<span style="font-size:14px; font-weight:400; color:var(--text2)"> 명</span></div>
+      </div>
+
+      <div class="col-4" style="padding: 12px 14px; border-right: 1px solid var(--border)">
+        <div style="font-size: 11px; color: var(--text2); margin-bottom: 2px">📦 도시락</div>
+        <div style="font-size: 20px; font-weight: 700; color: #F59E0B">{{ n_dinner }}</div>
+      </div>
+
+      <div class="col-4" style="padding: 12px 14px; border-right: 1px solid var(--border)">
+        <div style="font-size: 11px; color: var(--text2); margin-bottom: 2px">🔧 특근식사</div>
+        <div style="font-size: 20px; font-weight: 700; color: #A855F7">{{ n_wkend }}</div>
+      </div>
+
+      <div class="col-4" style="padding: 12px 14px">
+        <div style="font-size: 11px; color: var(--text2); margin-bottom: 2px">👤 외부손님</div>
+        <div style="font-size: 20px; font-weight: 700; color: #34D399">{{ n_guest }}</div>
+      </div>
+
+    </div>
+    <div style="padding: 8px 16px; border-top: 1px solid var(--border)">
+      <a href="/meal" style="color: var(--accent); font-size: 12px">식수 상세 보기 →</a>
+    </div>
+  </div>
+
+  <div class="t2 fs11 text-end mb-3">마지막 업데이트: {{ updated }} &nbsp;·&nbsp; 캐시 5분</div>
+</div>
+
+{% endblock %}
