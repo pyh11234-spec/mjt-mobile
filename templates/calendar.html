@@ -1,0 +1,180 @@
+{% extends 'base.html' %}
+{% set page = 'calendar' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">월중행사 계획표</div>
+    <div class="pg-sub">{{ year }}년 {{ '%02d'|format(month) }}월</div>
+  </div>
+  <button class="btn-ref" onclick="doRefresh()">↺ 새로고침</button>
+</div>
+
+<div class="px-3 pt-3">
+
+  <!-- 월 이동 -->
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
+    <a href="/calendar?year={{ prev_y }}&month={{ prev_m }}"
+       style="padding:6px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; color:var(--text2)">
+      ◀ {{ prev_m }}월
+    </a>
+    <span style="font-weight:700; font-size:15px">{{ year }}.{{ '%02d'|format(month) }}</span>
+    <a href="/calendar?year={{ next_y }}&month={{ next_m }}"
+       style="padding:6px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; color:var(--text2)">
+      {{ next_m }}월 ▶
+    </a>
+  </div>
+
+  {% if saved %}
+  <div style="background:#14532D; border:1px solid #22C55E; border-radius:10px;
+              padding:10px 14px; margin-bottom:10px; text-align:center; color:#4ADE80; font-weight:600">
+    ✅ 저장되었습니다
+  </div>
+  {% endif %}
+  {% if error %}
+  <div style="background:#450A0A; border:1px solid var(--red); border-radius:10px;
+              padding:10px 14px; margin-bottom:10px; text-align:center; color:#FCA5A5; font-size:13px">
+    ⚠️ {{ error }}
+  </div>
+  {% endif %}
+
+  <!-- 달력 그리드 -->
+  <div class="c-card mb-3" style="overflow:hidden">
+    <!-- 요일 헤더 -->
+    <div style="display:grid; grid-template-columns:repeat(7,1fr); border-bottom:1px solid var(--border)">
+      {% for wd, col in [('일','#EF4444'),('월','var(--text2)'),('화','var(--text2)'),('수','var(--text2)'),('목','var(--text2)'),('금','var(--text2)'),('토','#3B82F6')] %}
+      <div style="text-align:center; padding:6px 0; font-size:11px; font-weight:700; color:{{ col }}">{{ wd }}</div>
+      {% endfor %}
+    </div>
+    <!-- 날짜 셀 -->
+    <div style="display:grid; grid-template-columns:repeat(7,1fr)">
+      {% for week in weeks %}
+        {% for day in week %}
+        {% set is_today = (day == today.day and year == today.year and month == today.month) %}
+        {% set col_idx = loop.index0 %}
+        {% set day_evs = ev_by_day.get(day, []) %}
+        <div onclick="{% if day %}toggleDay({{ day }}){% endif %}"
+             style="min-height:56px; padding:4px; border-right:1px solid var(--border);
+                    border-bottom:1px solid var(--border); cursor:{% if day %}pointer{% else %}default{% endif %};
+                    background:{% if is_today %}#1E3A5F{% else %}var(--card){% endif %}">
+          {% if day %}
+          <div style="font-size:11px; font-weight:{% if is_today %}900{% else %}600{% endif %};
+                      color:{% if col_idx==0 %}#EF4444{% elif col_idx==6 %}#3B82F6{% else %}var(--text){% endif %};
+                      margin-bottom:2px">
+            {{ day }}{% if is_today %} ●{% endif %}
+          </div>
+          {% for ev in day_evs %}
+          <div style="font-size:9px; border-radius:3px; padding:1px 4px; margin-bottom:1px;
+                      background:{{ ev_colors.get(ev.type, '#F3F4F6') }}; color:#1E293B;
+                      white-space:nowrap; overflow:hidden; text-overflow:ellipsis"
+               title="{{ ev.content }}">
+            {{ ev.content[:8] }}{% if ev.content|length > 8 %}…{% endif %}
+          </div>
+          {% endfor %}
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- 행사 목록 -->
+  {% if ev_by_day %}
+  <div class="sec-lbl">{{ month }}월 행사 목록</div>
+  <div class="c-card mb-3">
+    {% set ns = namespace(shown=false) %}
+    {% for day in range(1, 32) %}
+      {% if ev_by_day.get(day) %}
+      {% set ns.shown = true %}
+      {% for ev in ev_by_day[day] %}
+      <div class="c-row" style="flex-wrap:wrap; gap:4px">
+        <span style="font-size:12px; font-weight:700; color:var(--accent); min-width:32px">{{ '%02d'|format(day) }}일</span>
+        <span style="font-size:11px; padding:2px 7px; border-radius:4px;
+                     background:{{ ev_colors.get(ev.type,'#F3F4F6') }}; color:#1E293B">{{ ev.type }}</span>
+        <span style="flex:1; font-size:13px; font-weight:600">{{ ev.content }}</span>
+        {% if ev.note %}
+        <span class="t2 fs11" style="width:100%; padding-left:46px">{{ ev.note }}</span>
+        {% endif %}
+        <form method="post" style="margin:0" onsubmit="return confirm('삭제하시겠습니까?')">
+          <input type="hidden" name="action" value="delete">
+          <input type="hidden" name="ds" value="{{ year }}-{{ '%02d'|format(month) }}-{{ '%02d'|format(day) }}">
+          <input type="hidden" name="content" value="{{ ev.content }}">
+          <input type="hidden" name="pw" value="" id="del_pw_{{ loop.index }}">
+          <button type="button" onclick="deletePw(this)"
+                  style="background:none; border:none; color:#EF4444; font-size:11px; cursor:pointer">삭제</button>
+        </form>
+      </div>
+      {% endfor %}
+      {% endif %}
+    {% endfor %}
+    {% if not ns.shown %}
+    <div class="empty">등록된 행사 없음</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- 행사 등록 -->
+  <div class="sec-lbl">행사 등록 (관리자)</div>
+  <div class="c-card mb-3" style="padding:14px 16px">
+    <form method="post" id="addForm">
+      <input type="hidden" name="action" value="add">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px">
+        <div>
+          <div class="t2 fs11 mb-1">날짜</div>
+          <input type="date" name="ds" id="day-input" required
+            style="width:100%; background:var(--bg); color:var(--text);
+                   border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-size:13px">
+        </div>
+        <div>
+          <div class="t2 fs11 mb-1">구분</div>
+          <select name="type"
+            style="width:100%; background:var(--bg); color:var(--text);
+                   border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-size:13px">
+            {% for t in ev_types %}<option>{{ t }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="t2 fs11 mb-1">내용</div>
+      <input type="text" name="content" placeholder="행사 내용 입력" required
+        style="width:100%; background:var(--bg); color:var(--text);
+               border:1px solid var(--border); border-radius:8px;
+               padding:8px 10px; font-size:13px; margin-bottom:8px">
+      <div class="t2 fs11 mb-1">비고 (선택)</div>
+      <input type="text" name="note" placeholder="추가 메모"
+        style="width:100%; background:var(--bg); color:var(--text);
+               border:1px solid var(--border); border-radius:8px;
+               padding:8px 10px; font-size:13px; margin-bottom:10px">
+      <div class="t2 fs11 mb-1">관리자 비밀번호</div>
+      <input type="password" name="pw" placeholder="비밀번호" required inputmode="numeric"
+        style="width:100%; background:var(--bg); color:var(--text);
+               border:1px solid var(--border); border-radius:8px;
+               padding:8px 10px; font-size:16px; letter-spacing:4px; margin-bottom:10px">
+      <button type="submit"
+        style="width:100%; background:var(--accent); color:white; border:none;
+               border-radius:10px; padding:12px; font-size:14px; font-weight:700; cursor:pointer">
+        + 행사 등록
+      </button>
+    </form>
+  </div>
+
+  <div class="t2 fs11 text-end mb-3">업데이트: {{ updated }}</div>
+</div>
+
+<script>
+function toggleDay(day) {
+  var yr  = {{ year }};
+  var mo  = {{ month }};
+  var ds  = yr + '-' + String(mo).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+  document.getElementById('day-input').value = ds;
+  document.getElementById('addForm').scrollIntoView({behavior:'smooth'});
+}
+function deletePw(btn) {
+  var pw = prompt('관리자 비밀번호를 입력하세요:');
+  if (pw === null) return;
+  var form = btn.closest('form');
+  form.querySelector('input[name=pw]').value = pw;
+  form.submit();
+}
+</script>
+
+{% endblock %}

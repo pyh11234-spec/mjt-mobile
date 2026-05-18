@@ -13,8 +13,26 @@ from google.oauth2.service_account import Credentials
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
-# 식당 메뉴 등록 비밀번호 (환경변수 MENU_PW 로 변경 가능, 기본값 3838)
+# 식당 메뉴 등록 비밀번호
 MENU_PW = os.environ.get('MENU_PW', '3838')
+
+# ── 결재 설정 ────────────────────────────────────────────────────
+# render.com 환경변수에 APPROVE_GRP_MJ_PW / APPROVE_CEO_MJ_PW /
+# APPROVE_GRP_SCS_PW / APPROVE_DIR_SCS_PW 로 각 결재자 비밀번호 설정
+APPROVAL_CFG = {
+    'MJ': {
+        'grp': {'name': '이광희', 'title': '제조그룹장', 'stamp': '이광희',
+                'pw': os.environ.get('APPROVE_GRP_MJ_PW', '')},
+        'ceo': {'name': '김신욱', 'title': '대표이사',   'stamp': '김신욱',
+                'pw': os.environ.get('APPROVE_CEO_MJ_PW', '')},
+    },
+    'SCS': {
+        'grp': {'name': '이현승', 'title': '제조팀장',   'stamp': '이현승',
+                'pw': os.environ.get('APPROVE_GRP_SCS_PW', '')},
+        'ceo': {'name': '김멋진', 'title': '이사',       'stamp': '김멋진',
+                'pw': os.environ.get('APPROVE_DIR_SCS_PW', '')},
+    },
+}
 
 # ── 상수 ────────────────────────────────────────────────────────
 SHEET_NAME   = 'MJT_식수관리'
@@ -535,47 +553,140 @@ def _ot_week_data(ref_ds):
 
 @app.route('/ot_schedule/preview')
 def ot_schedule_preview():
-    ref_ds = request.args.get('week', date.today().strftime('%Y-%m-%d'))
+    ref_ds  = request.args.get('week', date.today().strftime('%Y-%m-%d'))
+    fac     = request.args.get('fac', 'MJ')   # 'MJ' or 'SCS'
+    appr_err= request.args.get('appr_err', '')
+    appr_ok = request.args.get('appr_ok', '')
+    if fac not in ('MJ', 'SCS'):
+        fac = 'MJ'
+    fac_prefix = 'M' if fac == 'MJ' else 'S'
+
     try:
         hol_sp, emp_week_ot, mon, sun = _ot_week_data(ref_ds)
-        DATE_COLORS = ['#E8F5E9','#E3F2FD','#FFF3E0','#F3E5F5','#FCE4EC','#E0F7FA']
-        date_color_map = {}
-        color_idx = 0
-        rows = []
-        no = 1
+
+        # 공장별 필터
+        hol_sp = [r for r in hol_sp
+                  if str(r.get('사원번호', '')).strip().upper().startswith(fac_prefix.upper())]
+
+        # 날짜 목록 (unique, sorted)
+        unique_dates = sorted(set(str(r.get('일자', '')).strip() for r in hol_sp))
+
+        # GL 이름 — query param gl_YYYYMMDD=이름
+        date_labels = []
+        for ds in unique_dates:
+            gl = request.args.get(f'gl_{ds.replace("-","")}', '')
+            try:
+                d_obj = date.fromisoformat(ds)
+                label = f'{d_obj.strftime("%m/%d")} ({get_day_label(ds)})'
+            except Exception:
+                label = ds
+            date_labels.append({'ds': ds, 'label': label, 'gl': gl})
+
+        # 사람별 피벗
+        person_map: dict = {}
         for r in hol_sp:
             ds_r  = str(r.get('일자', '')).strip()
-            label = r.get('_label', '')
+            eid   = str(r.get('사원번호', '')).strip()
+            value = r.get('값', 0)
+            ts, te = _ot_time(value)
+            note   = str(r.get('비고', '')).strip()
+            if eid not in person_map:
+                person_map[eid] = {
+                    'dept': str(r.get('부서명', '')).strip(),
+                    'name': str(r.get('성명', '')).strip(),
+                    'task': note,
+                    'days': {},
+                }
+            person_map[eid]['days'][ds_r] = f'{ts}~{te}'
+            if note and note not in person_map[eid]['task']:
+                sep = ', ' if person_map[eid]['task'] else ''
+                person_map[eid]['task'] += sep + note
+
+        # 부서 순서 (등장 순서 기준)
+        dept_order: list = []
+        for p in person_map.values():
+            if p['dept'] not in dept_order:
+                dept_order.append(p['dept'])
+
+        persons = sorted(person_map.items(),
+                         key=lambda x: (dept_order.index(x[1]['dept'])
+                                        if x[1]['dept'] in dept_order else 999,
+                                        x[1]['name']))
+
+        # rowspan 계산 (dept 연속 그룹)
+        rows = []
+        no = 1
+        i = 0
+        while i < len(persons):
+            dept = persons[i][1]['dept']
+            j = i + 1
+            while j < len(persons) and persons[j][1]['dept'] == dept:
+                j += 1
+            span = j - i
+            for k in range(i, j):
+                _, p = persons[k]
+                rows.append({
+                    'no':        no,
+                    'dept':      dept,
+                    'dept_span': span if k == i else 0,
+                    'name':      p['name'],
+                    'task':      p['task'],
+                    'days':      p['days'],
+                })
+                no += 1
+            i = j
+
+        # 날짜별 인원 합계
+        totals = {ds: sum(1 for _, p in persons if ds in p['days'])
+                  for ds in unique_dates}
+
+        # title 생성
+        if unique_dates:
+            d0 = date.fromisoformat(unique_dates[0])
+            d1 = date.fromisoformat(unique_dates[-1])
+            period = f'{d0.strftime("%m/%d")}~{d1.strftime("%m/%d")}'
+        else:
+            period = f'{mon.strftime("%m/%d")}~{sun.strftime("%m/%d")}'
+        doc_title = f'{mon.strftime("%m")}월 특근 근무자 명단 ({period})'
+
+        # 결재 상태
+        week_key = mon.strftime('%Y-%m-%d')
+        appr     = get_approval(week_key, fac)
+        raw_cfg  = APPROVAL_CFG.get(fac, {})
+        # 비밀번호 제외하고 템플릿에 전달
+        appr_cfg = {k: {ik: iv for ik, iv in v.items() if ik != 'pw'}
+                    for k, v in raw_cfg.items()}
+
+        # 도장 이미지 base64 인코딩 (없으면 None)
+        def _stamp_b64(name):
             try:
-                d_obj   = date.fromisoformat(ds_r)
-                day_str = f'{d_obj.strftime("%m/%d")} ({label})'
+                p = os.path.join(os.path.dirname(__file__), 'static', 'stamps', f'{name}.png')
+                with open(p, 'rb') as f:
+                    return base64.b64encode(f.read()).decode()
             except Exception:
-                day_str = ds_r
-            value  = r.get('값', 0)
-            eid    = str(r.get('사원번호', '')).strip()
-            week_h = emp_week_ot.get(eid, float(value or 0))
-            t_start, t_end = _ot_time(value)
-            if ds_r not in date_color_map:
-                date_color_map[ds_r] = DATE_COLORS[color_idx % len(DATE_COLORS)]
-                color_idx += 1
-            rows.append({
-                'no':      no,
-                'day':     day_str,
-                'start':   t_start,
-                'end':     t_end,
-                'dept':    str(r.get('부서명', '')).strip(),
-                'name':    str(r.get('성명', '')).strip(),
-                'reason':  str(r.get('비고', '')).strip(),
-                'week_h':  f'{week_h:.0f}H',
-                'color':   date_color_map[ds_r],
-            })
-            no += 1
+                return None
+
+        grp_stamp = _stamp_b64(appr_cfg.get('grp', {}).get('stamp', '')) if appr_cfg else None
+        ceo_stamp = _stamp_b64(appr_cfg.get('ceo', {}).get('stamp', '')) if appr_cfg else None
+
         return render_template('ot_preview.html',
-            rows      = rows,
-            mon       = mon,
-            sun       = sun,
-            ref_ds    = ref_ds,
-            today_str = date.today().strftime('%Y-%m-%d'),
+            rows        = rows,
+            date_labels = date_labels,
+            unique_dates= unique_dates,
+            totals      = totals,
+            doc_title   = doc_title,
+            mon         = mon,
+            sun         = sun,
+            ref_ds      = ref_ds,
+            fac         = fac,
+            week_key    = week_key,
+            appr        = appr,
+            appr_cfg    = appr_cfg,
+            grp_stamp   = grp_stamp,
+            ceo_stamp   = ceo_stamp,
+            appr_err    = appr_err,
+            appr_ok     = appr_ok,
+            today_str   = date.today().strftime('%Y-%m-%d'),
         )
     except Exception as e:
         return render_template('error.html', error=str(e))
@@ -584,6 +695,10 @@ def ot_schedule_preview():
 @app.route('/ot_schedule/export')
 def ot_schedule_export():
     ref_ds = request.args.get('week', date.today().strftime('%Y-%m-%d'))
+    fac    = request.args.get('fac', 'MJ')
+    if fac not in ('MJ', 'SCS'):
+        fac = 'MJ'
+    fac_prefix = 'M' if fac == 'MJ' else 'S'
     try:
         from openpyxl import Workbook
         from openpyxl.styles import (Font, PatternFill, Alignment,
@@ -591,6 +706,8 @@ def ot_schedule_export():
         from openpyxl.utils import get_column_letter
 
         hol_sp, emp_week_ot, mon, sun = _ot_week_data(ref_ds)
+        hol_sp = [r for r in hol_sp
+                  if str(r.get('사원번호', '')).strip().upper().startswith(fac_prefix.upper())]
 
         wb = Workbook()
         ws = wb.active
@@ -725,6 +842,237 @@ def ot_schedule_export():
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
         return render_template('error.html', error=str(e))
+
+
+# ── 결재 함수 ────────────────────────────────────────────────────
+_APPR_SHEET = '특근결재'
+# 컬럼: 주차키|공장|상태|1차자|1차시|1차결|1차사유|최종자|최종시|최종결|최종사유
+
+def get_approval(week_key: str, factory: str) -> dict:
+    def _f():
+        try:
+            sh   = _open_sh()
+            rows = sh.worksheet(_APPR_SHEET).get_all_values()[1:]
+            for r in rows:
+                if len(r) >= 2 and r[0].strip() == week_key and r[1].strip() == factory:
+                    def _g(i): return r[i].strip() if len(r) > i else ''
+                    return {'week_key': _g(0), 'factory': _g(1), 'status': _g(2) or '대기',
+                            'grp_name': _g(3), 'grp_dt': _g(4), 'grp_dec': _g(5), 'grp_reason': _g(6),
+                            'ceo_name': _g(7), 'ceo_dt': _g(8), 'ceo_dec': _g(9), 'ceo_reason': _g(10)}
+        except Exception:
+            pass
+        return {'week_key': week_key, 'factory': factory, 'status': '대기',
+                'grp_name':'','grp_dt':'','grp_dec':'','grp_reason':'',
+                'ceo_name':'','ceo_dt':'','ceo_dec':'','ceo_reason':''}
+    return _cached(f'appr_{week_key}_{factory}', _f, ttl=60)
+
+def _invalidate_approval(week_key, factory):
+    with _lock:
+        _cache.pop(f'appr_{week_key}_{factory}', None)
+
+def save_approval(week_key, factory, level, decision, reason, approver_name):
+    sh   = _open_sh()
+    ws   = sh.worksheet(_APPR_SHEET)
+    now  = datetime.now().strftime('%Y-%m-%d %H:%M')
+    rows = ws.get_all_values()
+    row_idx = None
+    for i, r in enumerate(rows[1:], start=2):
+        if len(r) >= 2 and r[0].strip() == week_key and r[1].strip() == factory:
+            row_idx = i; break
+
+    if level == 'grp':
+        new_status = '1차완료' if decision == '승인' else '반려'
+        if row_idx:
+            ws.update(range_name=f'C{row_idx}:G{row_idx}',
+                      values=[[new_status, approver_name, now, decision, reason]])
+        else:
+            ws.append_row([week_key, factory, new_status,
+                           approver_name, now, decision, reason, '', '', '', ''],
+                          value_input_option='USER_ENTERED')
+    else:  # ceo
+        new_status = '최종승인' if decision == '승인' else '반려'
+        if row_idx:
+            ws.update(range_name=f'C{row_idx}', values=[[new_status]])
+            ws.update(range_name=f'H{row_idx}:K{row_idx}',
+                      values=[[approver_name, now, decision, reason]])
+        else:
+            ws.append_row([week_key, factory, new_status,
+                           '', '', '', '', approver_name, now, decision, reason],
+                          value_input_option='USER_ENTERED')
+    _invalidate_approval(week_key, factory)
+
+
+@app.route('/ot_schedule/approve', methods=['POST'])
+def ot_approve():
+    week_key = request.form.get('week_key', '')
+    factory  = request.form.get('factory', 'MJ')
+    level    = request.form.get('level', 'grp')
+    decision = request.form.get('decision', '승인')
+    pw       = request.form.get('pw', '')
+    reason   = request.form.get('reason', '').strip()
+    ref_ds   = request.form.get('ref_ds', week_key)
+    fac      = request.form.get('fac', factory)
+
+    # 돌아갈 URL 구성
+    back = f'/ot_schedule/preview?week={ref_ds}&fac={fac}'
+    for key, val in request.form.items():
+        if key.startswith('gl_'):
+            back += f'&{key}={val}'
+
+    if factory not in APPROVAL_CFG or level not in APPROVAL_CFG[factory]:
+        return redirect(back + '&appr_err=설정오류')
+
+    correct_pw = APPROVAL_CFG[factory][level]['pw']
+    if not correct_pw:
+        return redirect(back + '&appr_err=비밀번호미설정')
+    if pw != correct_pw:
+        return redirect(back + '&appr_err=비밀번호오류')
+
+    state = get_approval(week_key, factory)
+    status = state['status']
+    if level == 'grp' and status not in ('대기', '반려'):
+        return redirect(back + '&appr_err=이미1차처리됨')
+    if level == 'ceo' and status != '1차완료':
+        return redirect(back + '&appr_err=1차결재필요')
+
+    name = APPROVAL_CFG[factory][level]['name']
+    try:
+        save_approval(week_key, factory, level, decision, reason, name)
+    except Exception as e:
+        return redirect(back + f'&appr_err={str(e)[:30]}')
+
+    return redirect(back + '&appr_ok=1')
+
+
+def get_company_events(year, month):
+    def _f():
+        try:
+            sh   = _open_sh()
+            rows = sh.worksheet('회사일정').get_all_values()[1:]
+            result = []
+            for r in rows:
+                if len(r) < 3 or not r[0].strip():
+                    continue
+                ds = r[0].strip()
+                if not (ds.startswith(f'{year}-{month:02d}') or
+                        ds.startswith(f'{year}-{str(month).zfill(2)}')):
+                    continue
+                result.append({'ds': ds, 'type': r[1].strip(),
+                                'content': r[2].strip(),
+                                'note': r[3].strip() if len(r) > 3 else ''})
+            return result
+        except Exception:
+            return []
+    return _cached(f'events_{year}_{month}', _f, ttl=300)
+
+def save_company_event(ds, ev_type, content, note=''):
+    sh = _open_sh()
+    ws = sh.worksheet('회사일정')
+    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    ws.append_row([ds, ev_type, content, note, now_s, '웹'], value_input_option='USER_ENTERED')
+    with _lock:
+        try:
+            yr, mo = int(ds[:4]), int(ds[5:7])
+            _cache.pop(f'events_{yr}_{mo}', None)
+        except Exception:
+            pass
+
+def delete_company_event(ds, content):
+    sh  = _open_sh()
+    ws  = sh.worksheet('회사일정')
+    all = ws.get_all_values()
+    for i, row in enumerate(all[1:], start=2):
+        if len(row) >= 3 and row[0].strip() == ds and row[2].strip() == content:
+            ws.delete_rows(i)
+            with _lock:
+                try:
+                    yr, mo = int(ds[:4]), int(ds[5:7])
+                    _cache.pop(f'events_{yr}_{mo}', None)
+                except Exception:
+                    pass
+            return True
+    return False
+
+
+@app.route('/calendar', methods=['GET', 'POST'])
+def calendar_view():
+    today = date.today()
+    year  = int(request.args.get('year',  today.year))
+    month = int(request.args.get('month', today.month))
+    error = ''
+    saved = False
+
+    if request.method == 'POST':
+        if request.form.get('pw') == MENU_PW:
+            action = request.form.get('action', '')
+            if action == 'add':
+                ds      = request.form.get('ds', '').strip()
+                ev_type = request.form.get('type', '행사').strip()
+                content = request.form.get('content', '').strip()
+                note    = request.form.get('note', '').strip()
+                if ds and content:
+                    try:
+                        save_company_event(ds, ev_type, content, note)
+                        saved = True
+                    except Exception as e:
+                        error = str(e)
+                else:
+                    error = '날짜와 내용을 입력해주세요.'
+            elif action == 'delete':
+                ds      = request.form.get('ds', '').strip()
+                content = request.form.get('content', '').strip()
+                try:
+                    delete_company_event(ds, content)
+                    saved = True
+                except Exception as e:
+                    error = str(e)
+        else:
+            error = '비밀번호가 틀렸습니다.'
+
+    events    = get_company_events(year, month)
+    ev_by_day = defaultdict(list)
+    for ev in events:
+        try:
+            day = int(ev['ds'].split('-')[2])
+            ev_by_day[day].append(ev)
+        except Exception:
+            pass
+
+    import calendar as _cal
+    first_wd, days_in_month = _cal.monthrange(year, month)
+    prev_m = month - 1 if month > 1 else 12
+    prev_y = year if month > 1 else year - 1
+    next_m = month + 1 if month < 12 else 1
+    next_y = year if month < 12 else year + 1
+
+    # 달력 주 구성 (일~토 순서, 일요일 시작)
+    # first_wd: Mon=0 ... Sun=6  →  offset: Sun=0, so offset=(first_wd+1)%7
+    offset = (first_wd + 1) % 7
+    weeks  = []
+    week   = [None] * offset
+    for d in range(1, days_in_month + 1):
+        week.append(d)
+        if len(week) == 7:
+            weeks.append(week)
+            week = []
+    if week:
+        weeks.append(week + [None] * (7 - len(week)))
+
+    ev_types = ['공휴일', '회의', '행사', '생산', '점검', '기타']
+    ev_colors = {
+        '공휴일': '#FEE2E2', '회의': '#DBEAFE', '행사': '#D1FAE5',
+        '생산': '#FFF3E0', '점검': '#EDE9FE', '기타': '#F3F4F6',
+    }
+
+    return render_template('calendar.html',
+        year=year, month=month,
+        weeks=weeks, ev_by_day=dict(ev_by_day),
+        ev_colors=ev_colors, ev_types=ev_types,
+        today=today, prev_y=prev_y, prev_m=prev_m,
+        next_y=next_y, next_m=next_m,
+        error=error, saved=saved,
+        updated=datetime.now().strftime('%H:%M'),
+    )
 
 
 @app.route('/api/refresh')
