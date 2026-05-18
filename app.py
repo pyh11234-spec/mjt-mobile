@@ -2,9 +2,10 @@
 MJT 모바일 현황 대시보드 — Flask
 Google Sheets 데이터를 모바일 브라우저로 조회 + 오늘 메뉴 등록
 """
-import os, json, base64, time, threading, secrets
-from datetime import datetime, date
-from flask import Flask, render_template, jsonify, request, redirect, url_for, session
+import os, json, base64, time, threading, secrets, io
+from datetime import datetime, date, timedelta
+from collections import defaultdict
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session, send_file
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -187,6 +188,113 @@ def calc_ot_status(emps, att_rows, year, month):
     rows.sort(key=lambda r: (status_order[r['status']], -r['total_ot']))
     return rows
 
+# ── 공휴일 DB ────────────────────────────────────────────────────
+def _build_holiday_db():
+    db = {}
+    fixed = {
+        '01-01': '신정',      '03-01': '삼일절',     '05-01': '근로자의날',
+        '05-05': '어린이날',  '06-06': '현충일',     '08-15': '광복절',
+        '10-03': '개천절',    '10-09': '한글날',     '12-25': '성탄절',
+    }
+    for yr in range(2025, 2051):
+        for mmdd, name in fixed.items():
+            db[f'{yr}-{mmdd}'] = name
+    lunar = {
+        '2026-02-16':'설날 연휴','2026-02-17':'설날','2026-02-18':'설날 연휴',
+        '2026-05-25':'부처님오신날',
+        '2026-09-24':'추석 연휴','2026-09-25':'추석','2026-09-26':'추석 연휴',
+        '2027-02-05':'설날 연휴','2027-02-06':'설날','2027-02-07':'설날 연휴',
+        '2027-05-13':'부처님오신날',
+        '2027-09-14':'추석 연휴','2027-09-15':'추석','2027-09-16':'추석 연휴',
+        '2028-01-26':'설날 연휴','2028-01-27':'설날','2028-01-28':'설날 연휴',
+        '2028-05-02':'부처님오신날',
+        '2028-10-02':'추석 연휴','2028-10-03':'추석','2028-10-04':'추석 연휴',
+        '2029-02-12':'설날 연휴','2029-02-13':'설날','2029-02-14':'설날 연휴',
+        '2029-05-21':'부처님오신날',
+        '2029-10-05':'추석','2029-10-06':'추석 연휴',
+        '2030-02-02':'설날 연휴','2030-02-03':'설날','2030-02-04':'설날 연휴',
+        '2030-05-11':'부처님오신날',
+        '2030-09-22':'추석 연휴','2030-09-23':'추석','2030-09-24':'추석 연휴',
+        '2031-01-22':'설날 연휴','2031-01-23':'설날','2031-01-24':'설날 연휴',
+        '2031-05-28':'부처님오신날',
+        '2031-09-11':'추석 연휴','2031-09-12':'추석','2031-09-13':'추석 연휴',
+        '2032-02-10':'설날 연휴','2032-02-11':'설날','2032-02-12':'설날 연휴',
+        '2032-05-16':'부처님오신날',
+        '2032-09-29':'추석 연휴','2032-09-30':'추석','2032-10-01':'추석 연휴',
+        '2033-01-30':'설날 연휴','2033-01-31':'설날','2033-02-01':'설날 연휴',
+        '2033-05-05':'부처님오신날',
+        '2033-09-18':'추석 연휴','2033-09-19':'추석','2033-09-20':'추석 연휴',
+        '2034-02-18':'설날 연휴','2034-02-19':'설날','2034-02-20':'설날 연휴',
+        '2034-05-25':'부처님오신날',
+        '2034-10-07':'추석 연휴','2034-10-08':'추석','2034-10-09':'추석 연휴',
+        '2035-02-07':'설날 연휴','2035-02-08':'설날','2035-02-09':'설날 연휴',
+        '2035-05-14':'부처님오신날',
+        '2035-09-26':'추석 연휴','2035-09-27':'추석','2035-09-28':'추석 연휴',
+    }
+    db.update(lunar)
+    return db
+
+BASE_HOLIDAYS = _build_holiday_db()
+
+def get_managed_holidays():
+    def _f():
+        try:
+            sh = _open_sh()
+            rows = sh.worksheet('공휴일').get_all_values()[1:]
+            return {r[0].strip(): r[1].strip()
+                    for r in rows if len(r) >= 2 and r[0].strip()}
+        except Exception:
+            return {}
+    return _cached('managed_hols', _f, ttl=3600)
+
+def get_day_label(ds: str):
+    """Returns '' for workday, '토'/'일'/holiday_name for non-workday."""
+    try:
+        d = date.fromisoformat(ds)
+    except Exception:
+        return ''
+    wd = d.weekday()
+    if wd == 5: return '토'
+    if wd == 6: return '일'
+    name = BASE_HOLIDAYS.get(ds) or get_managed_holidays().get(ds, '')
+    return name
+
+def _week_range(ref_ds=None):
+    ref = date.fromisoformat(ref_ds) if ref_ds else date.today()
+    mon = ref - timedelta(days=ref.weekday())
+    return mon, mon + timedelta(days=6)
+
+def get_week_att(ref_ds=None):
+    mon, sun = _week_range(ref_ds)
+    months = set()
+    d = mon
+    while d <= sun:
+        months.add((d.year, d.month))
+        d += timedelta(days=1)
+    all_recs = []
+    for yr, mo in months:
+        all_recs.extend(get_att_records(yr, mo))
+    week_dates = set()
+    d = mon
+    while d <= sun:
+        week_dates.add(d.strftime('%Y-%m-%d'))
+        d += timedelta(days=1)
+    return [r for r in all_recs if str(r.get('일자', '')).strip() in week_dates], mon, sun
+
+def _ot_time(hours):
+    """Convert OT hours float to HH:MM start/end (assumes 08:00 start)."""
+    try:
+        h = float(hours)
+    except Exception:
+        h = 0.0
+    start_min = 8 * 60
+    work_min  = int(h * 60)
+    lunch_min = 60 if h > 4 else 0
+    end_min   = start_min + work_min + lunch_min
+    def fmt(m):
+        return f'{m // 60:02d}:{m % 60:02d}'
+    return fmt(start_min), fmt(end_min)
+
 # ── 라우트 ──────────────────────────────────────────────────────
 @app.route('/')
 def index():
@@ -342,6 +450,231 @@ def menu_edit():
         saved=saved,
         weekday='월화수목금토일'[today.weekday()],
     )
+
+
+@app.route('/ot_schedule')
+def ot_schedule():
+    today  = date.today()
+    ds     = today.strftime('%Y-%m-%d')
+    ref_ds = request.args.get('week', ds)
+
+    try:
+        # ── 금일 잔업/특근 ─────────────────────────────
+        today_recs = get_att_records(today.year, today.month)
+        today_jn = [r for r in today_recs
+                    if str(r.get('일자', '')).strip() == ds
+                    and r.get('근태유형', '') == '잔업']
+        today_sp = [r for r in today_recs
+                    if str(r.get('일자', '')).strip() == ds
+                    and r.get('근태유형', '') == '특근']
+
+        # ── 금주 휴일 특근 일정 ─────────────────────────
+        week_recs, mon, sun = get_week_att(ref_ds)
+
+        # 특근 중 휴일(토/일/공휴일)인 날만
+        hol_sp = []
+        for r in week_recs:
+            if r.get('근태유형', '') != '특근':
+                continue
+            ds_r  = str(r.get('일자', '')).strip()
+            label = get_day_label(ds_r)
+            if label:
+                hol_sp.append(dict(r, _label=label))
+
+        # 날짜별 그룹핑
+        grouped = defaultdict(list)
+        for r in sorted(hol_sp, key=lambda x: str(x.get('일자', ''))):
+            grouped[str(r.get('일자', ''))].append(r)
+
+        # 주간 사원별 총OT (주40H 초과시간 계산용)
+        emp_week_ot = defaultdict(float)
+        for r in week_recs:
+            if r.get('근태유형', '') in ATT_CAT_OT:
+                try:
+                    emp_week_ot[str(r.get('사원번호', '')).strip()] += float(r.get('값', 0) or 0)
+                except Exception:
+                    pass
+
+        return render_template('ot_schedule.html',
+            today_ds      = ds,
+            today_weekday = '월화수목금토일'[today.weekday()],
+            today_jn      = today_jn,
+            today_sp      = today_sp,
+            grouped_sp    = dict(grouped),
+            mon = mon.strftime('%Y-%m-%d'),
+            sun = sun.strftime('%Y-%m-%d'),
+            ref_ds        = ref_ds,
+            emp_week_ot   = dict(emp_week_ot),
+            updated       = datetime.now().strftime('%H:%M'),
+        )
+    except Exception as e:
+        return render_template('error.html', error=str(e))
+
+
+@app.route('/ot_schedule/export')
+def ot_schedule_export():
+    ref_ds = request.args.get('week', date.today().strftime('%Y-%m-%d'))
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import (Font, PatternFill, Alignment,
+                                     Border, Side, GradientFill)
+        from openpyxl.utils import get_column_letter
+
+        week_recs, mon, sun = get_week_att(ref_ds)
+
+        # 특근 & 휴일만
+        hol_sp = []
+        for r in week_recs:
+            if r.get('근태유형', '') != '특근':
+                continue
+            ds_r  = str(r.get('일자', '')).strip()
+            label = get_day_label(ds_r)
+            if label:
+                hol_sp.append(dict(r, _label=label))
+        hol_sp.sort(key=lambda x: str(x.get('일자', '')))
+
+        # 주간 사원별 총OT
+        emp_week_ot = defaultdict(float)
+        for r in week_recs:
+            if r.get('근태유형', '') in ATT_CAT_OT:
+                try:
+                    emp_week_ot[str(r.get('사원번호', '')).strip()] += float(r.get('값', 0) or 0)
+                except Exception:
+                    pass
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = '특근신청서'
+
+        # 컬럼 너비
+        col_w = [6, 16, 10, 10, 14, 10, 30, 14]
+        for i, w in enumerate(col_w, 1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+        # 스타일 헬퍼
+        def bd(style='thin'):
+            s = Side(style=style)
+            return Border(left=s, right=s, top=s, bottom=s)
+        def fill(hex_color):
+            return PatternFill('solid', fgColor=hex_color)
+        def aln(h='center', v='center', wrap=False):
+            return Alignment(horizontal=h, vertical=v, wrap_text=wrap)
+
+        # ── 타이틀 ─────────────────────────────────────────
+        ws.row_dimensions[1].height = 8
+        ws.row_dimensions[2].height = 32
+        ws.row_dimensions[3].height = 20
+        ws.row_dimensions[4].height = 8
+
+        ws.merge_cells('A2:H2')
+        tc = ws['A2']
+        tc.value     = 'MJT 주식회사  휴일 특근 신청서'
+        tc.font      = Font(size=18, bold=True, color='1A237E')
+        tc.alignment = aln('center')
+
+        ws.merge_cells('A3:H3')
+        dc = ws['A3']
+        period_str = f'{mon.strftime("%Y년 %m월 %d일")} ~ {sun.strftime("%m월 %d일")}  |  작성일 {date.today().strftime("%Y-%m-%d")}'
+        dc.value     = period_str
+        dc.font      = Font(size=10, color='555555')
+        dc.alignment = aln('center')
+
+        # ── 헤더 행 ────────────────────────────────────────
+        HDR_ROW = 5
+        ws.row_dimensions[HDR_ROW].height = 22
+        headers = ['No', '근무일', '시작시간', '종료시간', '공정(부서)', '성명', '근로 사유', '주40H 초과시간']
+        hdr_fill = fill('1565C0')
+        for col, h in enumerate(headers, 1):
+            c = ws.cell(HDR_ROW, col, h)
+            c.font      = Font(bold=True, color='FFFFFF', size=10)
+            c.fill      = hdr_fill
+            c.alignment = aln('center')
+            c.border    = bd()
+
+        # ── 데이터 행 ───────────────────────────────────────
+        DATE_COLORS = ['E8F5E9', 'E3F2FD', 'FFF3E0', 'F3E5F5', 'FCE4EC', 'E0F7FA']
+        date_color_map = {}
+        color_idx = 0
+
+        row_num = HDR_ROW + 1
+        no = 1
+        for r in hol_sp:
+            ds_r   = str(r.get('일자', '')).strip()
+            label  = r.get('_label', '')
+            dept   = str(r.get('부서명', '')).strip()
+            name   = str(r.get('성명', '')).strip()
+            value  = r.get('값', 0)
+            note   = str(r.get('비고', '')).strip()
+            eid    = str(r.get('사원번호', '')).strip()
+            week_h = emp_week_ot.get(eid, float(value or 0))
+
+            try:
+                d_obj = date.fromisoformat(ds_r)
+                day_str = f'{d_obj.strftime("%m/%d")} ({label})'
+            except Exception:
+                day_str = ds_r
+
+            t_start, t_end = _ot_time(value)
+
+            if ds_r not in date_color_map:
+                date_color_map[ds_r] = DATE_COLORS[color_idx % len(DATE_COLORS)]
+                color_idx += 1
+            row_fill = fill(date_color_map[ds_r])
+
+            ws.row_dimensions[row_num].height = 18
+            row_data = [no, day_str, t_start, t_end, dept, name, note,
+                        f'{week_h:.0f}H']
+            for col, val in enumerate(row_data, 1):
+                c = ws.cell(row_num, col, val)
+                c.fill      = row_fill
+                c.border    = bd()
+                c.font      = Font(size=10)
+                c.alignment = aln('center' if col != 7 else 'left', wrap=True)
+            row_num += 1
+            no += 1
+
+        if no == 1:
+            ws.merge_cells(f'A{row_num}:H{row_num}')
+            c = ws.cell(row_num, 1, '해당 기간 휴일 특근 기록 없음')
+            c.alignment = aln('center')
+            c.font      = Font(italic=True, color='888888')
+            row_num += 1
+
+        # ── 결재 행 ────────────────────────────────────────
+        row_num += 1
+        ws.row_dimensions[row_num].height = 18
+        ws.merge_cells(f'A{row_num}:B{row_num}')
+        ws.cell(row_num, 1, '담당').font = Font(bold=True, size=10)
+        ws.cell(row_num, 1).alignment    = aln('center')
+        ws.cell(row_num, 1).border       = bd()
+        ws.merge_cells(f'C{row_num}:D{row_num}')
+        ws.cell(row_num, 3, '팀장').font  = Font(bold=True, size=10)
+        ws.cell(row_num, 3).alignment     = aln('center')
+        ws.cell(row_num, 3).border        = bd()
+        ws.merge_cells(f'E{row_num}:F{row_num}')
+        ws.cell(row_num, 5, '부문장').font = Font(bold=True, size=10)
+        ws.cell(row_num, 5).alignment      = aln('center')
+        ws.cell(row_num, 5).border         = bd()
+        ws.merge_cells(f'G{row_num}:H{row_num}')
+        ws.cell(row_num, 7, '대표이사').font = Font(bold=True, size=10)
+        ws.cell(row_num, 7).alignment        = aln('center')
+        ws.cell(row_num, 7).border           = bd()
+        row_num += 1
+        ws.row_dimensions[row_num].height = 40
+        for col in [1, 3, 5, 7]:
+            end = col + 1
+            ws.merge_cells(f'{get_column_letter(col)}{row_num}:{get_column_letter(end)}{row_num}')
+            ws.cell(row_num, col, '').border = bd()
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        fname = f'휴일특근신청서_{mon.strftime("%Y%m%d")}.xlsx'
+        return send_file(buf, download_name=fname,
+                         as_attachment=True,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        return render_template('error.html', error=str(e))
 
 
 @app.route('/api/refresh')
