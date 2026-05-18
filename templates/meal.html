@@ -12,6 +12,19 @@
 
 <div class="px-3 pt-3">
 
+  <!-- 오늘 점심 메뉴 -->
+  {% if today_menu %}
+  <div class="c-card mb-3" style="padding:14px 16px; border-left: 4px solid #F59E0B">
+    <div class="t2 fs11" style="margin-bottom:4px">🍽 오늘 점심 메뉴</div>
+    <div style="font-size:15px; font-weight:600; white-space:pre-wrap">{{ today_menu }}</div>
+  </div>
+  {% else %}
+  <div class="c-card mb-3" style="padding:12px 16px">
+    <span class="t2 fs13">메뉴 미등록 &nbsp;</span>
+    <a href="/menu" style="color:var(--accent); font-size:13px">등록하기 →</a>
+  </div>
+  {% endif %}
+
   <!-- 날짜 선택 -->
   <div style="margin-bottom:14px">
     <input type="date" id="dp" value="{{ ds }}"

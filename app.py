@@ -1,15 +1,19 @@
 """
 MJT 모바일 현황 대시보드 — Flask
-Google Sheets 데이터를 모바일 브라우저로 조회 (읽기 전용)
+Google Sheets 데이터를 모바일 브라우저로 조회 + 오늘 메뉴 등록
 """
-import os, json, base64, time, threading
+import os, json, base64, time, threading, secrets
 from datetime import datetime, date
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session
 
 import gspread
 from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
+
+# 식당 메뉴 등록 비밀번호 (환경변수 MENU_PW 로 변경 가능, 기본값 3838)
+MENU_PW = os.environ.get('MENU_PW', '3838')
 
 # ── 상수 ────────────────────────────────────────────────────────
 SHEET_NAME   = 'MJT_식수관리'
@@ -73,6 +77,37 @@ def get_att_records(year, month):
                 if str(r.get('연도', '')).strip() == str(year)
                 and str(r.get('월', '')).strip() == str(month)]
     return _cached(f'att_{year}_{month}', _f)
+
+def get_today_menu(ds: str) -> str:
+    def _f():
+        try:
+            sh = _open_sh()
+            rows = sh.worksheet('오늘점심메뉴').get_all_values()[1:]
+            for r in rows:
+                if len(r) >= 2 and r[0].strip() == ds:
+                    return r[1].strip()
+        except Exception:
+            pass
+        return ''
+    return _cached(f'menu_{ds}', _f, ttl=60)
+
+def save_today_menu(ds: str, menu: str):
+    sh = _open_sh()
+    ws = sh.worksheet('오늘점심메뉴')
+    rows = ws.get_all_values()
+    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    for i, r in enumerate(rows):
+        if i == 0:
+            continue
+        if r and r[0].strip() == ds:
+            ws.update(range_name=f'A{i+1}:D{i+1}',
+                      values=[[ds, menu, '식당', now_s]])
+            with _lock:
+                _cache.pop(f'menu_{ds}', None)
+            return
+    ws.append_row([ds, menu, '식당', now_s], value_input_option='USER_ENTERED')
+    with _lock:
+        _cache.pop(f'menu_{ds}', None)
 
 def get_meal_today(ds: str) -> dict:
     # 중식신청:   [날짜, 시간, 공장, 사원번호, 성명, 부서, 상태]
@@ -174,6 +209,7 @@ def index():
         dinner     = meal['저녁도시락']
         wkend      = meal['특근식사']
         guests     = meal['외부손님']
+        today_menu = get_today_menu(ds)
 
         return render_template('index.html',
             today   = today.strftime('%Y년 %m월 %d일'),
@@ -182,6 +218,7 @@ def index():
             n_emps   = len(emps),
             total_ot = int(total_ot),
             n_warn=n_warn, n_danger=n_danger, n_max64=n_max64,
+            today_menu   = today_menu,
             n_lunch_req  = len(lunch_req),
             n_lunch_real = len(lunch_real),
             n_dinner     = len(dinner),
@@ -255,8 +292,10 @@ def meal():
                       if len(r) > 6 and r[6].strip() == '중국집']
         guests     = meal_data['외부손님']
 
+        today_menu = get_today_menu(ds)
         return render_template('meal.html',
             ds=ds,
+            today_menu=today_menu,
             lunch_req=lunch_req, lunch_real=lunch_real,
             dinner_m=dinner_m, dinner_f=dinner_f,
             wkend_g=wkend_g, wkend_c=wkend_c,
@@ -265,6 +304,44 @@ def meal():
         )
     except Exception as e:
         return render_template('error.html', error=str(e))
+
+
+@app.route('/menu', methods=['GET', 'POST'])
+def menu_edit():
+    today = date.today()
+    ds    = today.strftime('%Y-%m-%d')
+    error = ''
+    saved = False
+
+    # 로그인 처리
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'login':
+            if request.form.get('pw') == MENU_PW:
+                session['menu_auth'] = True
+            else:
+                error = '비밀번호가 틀렸습니다.'
+        elif action == 'save' and session.get('menu_auth'):
+            menu_text = request.form.get('menu', '').strip()
+            if menu_text:
+                try:
+                    save_today_menu(ds, menu_text)
+                    saved = True
+                except Exception as e:
+                    error = str(e)
+        elif action == 'logout':
+            session.pop('menu_auth', None)
+            return redirect(url_for('menu_edit'))
+
+    current_menu = get_today_menu(ds) if session.get('menu_auth') else ''
+    return render_template('menu_edit.html',
+        ds=ds,
+        authed=session.get('menu_auth', False),
+        current_menu=current_menu,
+        error=error,
+        saved=saved,
+        weekday='월화수목금토일'[today.weekday()],
+    )
 
 
 @app.route('/api/refresh')

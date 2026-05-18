@@ -12,6 +12,18 @@
 
 <div class="px-3 pt-3">
 
+  <!-- 오늘 점심 메뉴 -->
+  <div class="sec-lbl">오늘 점심 메뉴</div>
+  <div class="c-card mb-3" style="padding: 14px 16px">
+    {% if today_menu %}
+    <div style="font-size: 15px; font-weight: 600; line-height: 1.6; white-space: pre-wrap">{{ today_menu }}</div>
+    {% else %}
+    <div class="t2 fs13">아직 등록된 메뉴가 없습니다.
+      <a href="/menu" style="color:var(--accent)">등록하기 →</a>
+    </div>
+    {% endif %}
+  </div>
+
   <!-- 근태 KPI -->
   <div class="sec-lbl">{{ year }}년 {{ '%02d'|format(month) }}월 근태</div>
   <div class="c-card mb-3">
