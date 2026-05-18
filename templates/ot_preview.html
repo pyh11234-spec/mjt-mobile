@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>휴일 특근 신청서</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #E2E8F0;
+      font-family: 'Apple SD Gothic Neo', '맑은 고딕', sans-serif;
+      padding-bottom: 100px;
+    }
+
+    /* ── 상단 액션 바 ── */
+    .action-bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: #1E293B;
+      border-bottom: 1px solid #334155;
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px;
+    }
+    .action-bar .back {
+      color: #94A3B8; font-size: 13px;
+      background: none; border: 1px solid #334155;
+      border-radius: 8px; padding: 6px 12px; cursor: pointer;
+    }
+    .action-bar .spacer { flex: 1; }
+    .btn-img {
+      background: #059669; color: white; border: none;
+      border-radius: 8px; padding: 7px 14px;
+      font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .btn-xl {
+      background: #1565C0; color: white; border: none;
+      border-radius: 8px; padding: 7px 14px;
+      font-size: 13px; font-weight: 700;
+      text-decoration: none; display: inline-block;
+    }
+    .btn-img:active, .btn-xl:active { opacity: 0.8; }
+
+    /* ── 신청서 문서 ── */
+    .doc-wrap {
+      margin-top: 56px;
+      padding: 12px;
+      overflow-x: auto;
+    }
+    #form-doc {
+      background: white;
+      border-radius: 6px;
+      padding: 20px 16px 24px;
+      min-width: 600px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    }
+
+    /* 타이틀 */
+    .doc-title {
+      text-align: center;
+      font-size: 20px; font-weight: 800;
+      color: #1A237E;
+      letter-spacing: -0.5px;
+      padding-bottom: 4px;
+    }
+    .doc-sub {
+      text-align: center;
+      font-size: 11px; color: #666;
+      margin-bottom: 14px;
+    }
+
+    /* 테이블 */
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .doc-table th {
+      background: #1565C0;
+      color: white;
+      padding: 7px 6px;
+      text-align: center;
+      font-weight: 700;
+      border: 1px solid #0D47A1;
+      white-space: nowrap;
+    }
+    .doc-table td {
+      padding: 6px 6px;
+      border: 1px solid #BDBDBD;
+      text-align: center;
+      vertical-align: middle;
+    }
+    .doc-table td.reason {
+      text-align: left;
+      padding-left: 8px;
+    }
+    .doc-table .empty-row td {
+      text-align: center; color: #999;
+      font-style: italic; padding: 16px;
+    }
+
+    /* 결재란 */
+    .approve-table {
+      margin-top: 16px;
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    .approve-table th {
+      background: #F5F5F5;
+      color: #333;
+      padding: 5px 8px;
+      border: 1px solid #BDBDBD;
+      text-align: center;
+      font-weight: 700;
+      width: 25%;
+    }
+    .approve-table td {
+      height: 44px;
+      border: 1px solid #BDBDBD;
+    }
+
+    /* 로딩 */
+    #saving-msg {
+      display: none;
+      position: fixed; inset: 0; z-index: 999;
+      background: rgba(0,0,0,0.5);
+      color: white; font-size: 16px; font-weight: 700;
+      align-items: center; justify-content: center;
+    }
+    #saving-msg.show { display: flex; }
+  </style>
+</head>
+<body>
+
+<!-- 액션 바 -->
+<div class="action-bar">
+  <button class="back" onclick="history.back()">← 돌아가기</button>
+  <div class="spacer"></div>
+  <button class="btn-img" onclick="saveImage()">📸 이미지 저장</button>
+  <a class="btn-xl" href="/ot_schedule/export?week={{ ref_ds }}">📥 Excel</a>
+</div>
+
+<!-- 저장 중 오버레이 -->
+<div id="saving-msg">이미지 저장 중…</div>
+
+<!-- 신청서 본문 -->
+<div class="doc-wrap">
+<div id="form-doc">
+
+  <div class="doc-title">MJT 주식회사 &nbsp; 휴일 특근 신청서</div>
+  <div class="doc-sub">
+    {{ mon.strftime('%Y년 %m월 %d일') }} ~ {{ sun.strftime('%m월 %d일') }}
+    &nbsp;|&nbsp; 작성일: {{ today_str }}
+  </div>
+
+  <table class="doc-table">
+    <thead>
+      <tr>
+        <th style="width:40px">No</th>
+        <th style="width:90px">근무일</th>
+        <th style="width:64px">시작시간</th>
+        <th style="width:64px">종료시간</th>
+        <th style="width:90px">공정(부서)</th>
+        <th style="width:60px">성명</th>
+        <th>근로 사유</th>
+        <th style="width:80px">주40H<br>초과시간</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if rows %}
+        {% for r in rows %}
+        <tr style="background: {{ r.color }}">
+          <td>{{ r.no }}</td>
+          <td>{{ r.day }}</td>
+          <td>{{ r.start }}</td>
+          <td>{{ r.end }}</td>
+          <td>{{ r.dept }}</td>
+          <td>{{ r.name }}</td>
+          <td class="reason">{{ r.reason if r.reason else '—' }}</td>
+          <td>{{ r.week_h }}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr class="empty-row">
+          <td colspan="8">해당 기간 휴일 특근 기록 없음</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <!-- 결재란 -->
+  <table class="approve-table">
+    <thead>
+      <tr>
+        <th>담당</th>
+        <th>팀장</th>
+        <th>부문장</th>
+        <th>대표이사</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td></td><td></td><td></td><td></td>
+      </tr>
+    </tbody>
+  </table>
+
+</div><!-- #form-doc -->
+</div><!-- .doc-wrap -->
+
+<script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+<script>
+function saveImage() {
+  var msg = document.getElementById('saving-msg');
+  msg.classList.add('show');
+  var doc = document.getElementById('form-doc');
+  html2canvas(doc, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: '#ffffff',
+    logging: false
+  }).then(function(canvas) {
+    var link = document.createElement('a');
+    var week = '{{ ref_ds }}'.replace(/-/g, '');
+    link.download = '휴일특근신청서_' + week + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    msg.classList.remove('show');
+  }).catch(function() {
+    msg.classList.remove('show');
+    alert('이미지 저장 중 오류가 발생했습니다.');
+  });
+}
+</script>
+
+</body>
+</html>

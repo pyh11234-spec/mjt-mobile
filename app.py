@@ -511,6 +511,76 @@ def ot_schedule():
         return render_template('error.html', error=str(e))
 
 
+def _ot_week_data(ref_ds):
+    """미리보기/내보내기 공통 데이터. (hol_sp, emp_week_ot, mon, sun) 반환."""
+    week_recs, mon, sun = get_week_att(ref_ds)
+    hol_sp = []
+    for r in week_recs:
+        if r.get('근태유형', '') != '특근':
+            continue
+        ds_r  = str(r.get('일자', '')).strip()
+        label = get_day_label(ds_r)
+        if label:
+            hol_sp.append(dict(r, _label=label))
+    hol_sp.sort(key=lambda x: str(x.get('일자', '')))
+    emp_week_ot = defaultdict(float)
+    for r in week_recs:
+        if r.get('근태유형', '') in ATT_CAT_OT:
+            try:
+                emp_week_ot[str(r.get('사원번호', '')).strip()] += float(r.get('값', 0) or 0)
+            except Exception:
+                pass
+    return hol_sp, dict(emp_week_ot), mon, sun
+
+
+@app.route('/ot_schedule/preview')
+def ot_schedule_preview():
+    ref_ds = request.args.get('week', date.today().strftime('%Y-%m-%d'))
+    try:
+        hol_sp, emp_week_ot, mon, sun = _ot_week_data(ref_ds)
+        DATE_COLORS = ['#E8F5E9','#E3F2FD','#FFF3E0','#F3E5F5','#FCE4EC','#E0F7FA']
+        date_color_map = {}
+        color_idx = 0
+        rows = []
+        no = 1
+        for r in hol_sp:
+            ds_r  = str(r.get('일자', '')).strip()
+            label = r.get('_label', '')
+            try:
+                d_obj   = date.fromisoformat(ds_r)
+                day_str = f'{d_obj.strftime("%m/%d")} ({label})'
+            except Exception:
+                day_str = ds_r
+            value  = r.get('값', 0)
+            eid    = str(r.get('사원번호', '')).strip()
+            week_h = emp_week_ot.get(eid, float(value or 0))
+            t_start, t_end = _ot_time(value)
+            if ds_r not in date_color_map:
+                date_color_map[ds_r] = DATE_COLORS[color_idx % len(DATE_COLORS)]
+                color_idx += 1
+            rows.append({
+                'no':      no,
+                'day':     day_str,
+                'start':   t_start,
+                'end':     t_end,
+                'dept':    str(r.get('부서명', '')).strip(),
+                'name':    str(r.get('성명', '')).strip(),
+                'reason':  str(r.get('비고', '')).strip(),
+                'week_h':  f'{week_h:.0f}H',
+                'color':   date_color_map[ds_r],
+            })
+            no += 1
+        return render_template('ot_preview.html',
+            rows      = rows,
+            mon       = mon,
+            sun       = sun,
+            ref_ds    = ref_ds,
+            today_str = date.today().strftime('%Y-%m-%d'),
+        )
+    except Exception as e:
+        return render_template('error.html', error=str(e))
+
+
 @app.route('/ot_schedule/export')
 def ot_schedule_export():
     ref_ds = request.args.get('week', date.today().strftime('%Y-%m-%d'))
@@ -520,27 +590,7 @@ def ot_schedule_export():
                                      Border, Side, GradientFill)
         from openpyxl.utils import get_column_letter
 
-        week_recs, mon, sun = get_week_att(ref_ds)
-
-        # 특근 & 휴일만
-        hol_sp = []
-        for r in week_recs:
-            if r.get('근태유형', '') != '특근':
-                continue
-            ds_r  = str(r.get('일자', '')).strip()
-            label = get_day_label(ds_r)
-            if label:
-                hol_sp.append(dict(r, _label=label))
-        hol_sp.sort(key=lambda x: str(x.get('일자', '')))
-
-        # 주간 사원별 총OT
-        emp_week_ot = defaultdict(float)
-        for r in week_recs:
-            if r.get('근태유형', '') in ATT_CAT_OT:
-                try:
-                    emp_week_ot[str(r.get('사원번호', '')).strip()] += float(r.get('값', 0) or 0)
-                except Exception:
-                    pass
+        hol_sp, emp_week_ot, mon, sun = _ot_week_data(ref_ds)
 
         wb = Workbook()
         ws = wb.active

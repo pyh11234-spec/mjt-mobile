@@ -126,14 +126,14 @@
   </div>
   {% endif %}
 
-  <!-- 내보내기 버튼 -->
-  <a href="/ot_schedule/export?week={{ ref_ds }}"
+  <!-- 신청서 버튼 -->
+  <a href="/ot_schedule/preview?week={{ ref_ds }}"
      style="display:block; width:100%; background:#1565C0; color:white; border:none;
             border-radius:12px; padding:14px; font-size:15px; font-weight:700;
             text-align:center; margin-bottom:8px">
-    📥 휴일 특근 신청서 Excel 다운로드
+    📄 휴일 특근 신청서 보기 · 저장
   </a>
-  <div class="t2 fs11 text-center mb-2">이번 주 휴일 특근 신청서를 엑셀로 내보냅니다</div>
+  <div class="t2 fs11 text-center mb-2">이번 주 신청서를 이미지 또는 Excel로 내보낼 수 있습니다</div>
 
   <div class="t2 fs11 text-end mb-3">업데이트: {{ updated }}</div>
 </div>
