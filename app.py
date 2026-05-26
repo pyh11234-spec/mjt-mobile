@@ -3,7 +3,7 @@ MJT 모바일 현황 대시보드 — Flask
 Google Sheets 데이터를 모바일 브라우저로 조회 + 오늘 메뉴 등록
 """
 import os, json, base64, time, threading, secrets, io
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from collections import defaultdict
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session, send_file
 
@@ -44,6 +44,14 @@ ATT_CAT_LEAVE= ['연차','오전반차','오후반차','탄력오전','탄력오
 OT_DANGER_H  = 12   # 주 52H 한도 OT
 OT_MAX64_H   = 24   # 주 64H 한도 OT
 CACHE_TTL    = 300  # 5분 캐시
+KST          = timezone(timedelta(hours=9))
+
+_OP_DEFAULTS = {
+    '중식신청마감': '08:10',
+    '중식시작':     '11:00',
+    '중식마감':     '13:30',
+    '저녁마감':     '15:00',
+}
 
 # ── 인증 ────────────────────────────────────────────────────────
 def _get_creds():
@@ -97,6 +105,24 @@ def get_att_records(year, month):
                 if str(r.get('연도', '')).strip() == str(year)
                 and str(r.get('월', '')).strip() == str(month)]
     return _cached(f'att_{year}_{month}', _f)
+
+def _now_kst() -> str:
+    return datetime.now(KST).strftime('%H:%M')
+
+def get_op_settings() -> dict:
+    def _f():
+        result = dict(_OP_DEFAULTS)
+        try:
+            sh   = _open_sh()
+            rows = sh.worksheet('운영설정').get_all_values()[1:]
+            for r in rows:
+                if len(r) >= 2 and r[0].strip() and r[1].strip():
+                    result[r[0].strip()] = r[1].strip()
+        except Exception:
+            pass
+        return result
+    return _cached('op_settings', _f, ttl=300)
+
 
 def get_today_menu(ds: str) -> str:
     def _f():
@@ -1175,6 +1201,17 @@ def api_meal_checkin():
 
     if not emp_id or action not in ('중식신청', '저녁도시락'):
         return jsonify({'ok': False, 'error': '잘못된 요청'})
+
+    settings = get_op_settings()
+    now      = _now_kst()
+    if action == '중식신청':
+        deadline = settings.get('중식신청마감', _OP_DEFAULTS['중식신청마감'])
+        if now > deadline:
+            return jsonify({'ok': False, 'error': f'중식 사전 신청 마감 시간이 지났습니다. (마감 {deadline})'})
+    elif action == '저녁도시락':
+        deadline = settings.get('저녁마감', _OP_DEFAULTS['저녁마감'])
+        if now > deadline:
+            return jsonify({'ok': False, 'error': f'저녁도시락 신청 마감 시간이 지났습니다. (마감 {deadline})'})
 
     ds    = date.today().strftime('%Y-%m-%d')
     now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
