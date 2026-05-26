@@ -163,23 +163,26 @@
 {% block content %}{% endblock %}
 
 <!-- 하단 네비게이션 -->
-<nav class="nav-btm">
-  <a href="/"             class="{% if page=='home'     %}active{% endif %}">
+<nav class="nav-btm" style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+  <a href="/"             class="{% if page=='home'     %}active{% endif %}" style="min-width:56px">
     <span class="ico">🏠</span>대시보드
   </a>
-  <a href="/overtime"     class="{% if page=='overtime' %}active{% endif %}">
+  <a href="/checkin"      class="{% if page=='checkin'  %}active{% endif %}" style="min-width:56px">
+    <span class="ico">📷</span>체크인
+  </a>
+  <a href="/overtime"     class="{% if page=='overtime' %}active{% endif %}" style="min-width:56px">
     <span class="ico">⏰</span>월별<br>연장근로
   </a>
-  <a href="/ot_schedule"  class="{% if page=='schedule' %}active{% endif %}">
+  <a href="/ot_schedule"  class="{% if page=='schedule' %}active{% endif %}" style="min-width:56px">
     <span class="ico">📅</span>연장근로<br>실시간현황
   </a>
-  <a href="/meal"         class="{% if page=='meal'     %}active{% endif %}">
+  <a href="/meal"         class="{% if page=='meal'     %}active{% endif %}" style="min-width:56px">
     <span class="ico">🍱</span>식수현황
   </a>
-  <a href="/calendar"     class="{% if page=='calendar' %}active{% endif %}">
+  <a href="/calendar"     class="{% if page=='calendar' %}active{% endif %}" style="min-width:56px">
     <span class="ico">📆</span>월중행사
   </a>
-  <a href="/menu"         class="{% if page=='menu'     %}active{% endif %}">
+  <a href="/menu"         class="{% if page=='menu'     %}active{% endif %}" style="min-width:56px">
     <span class="ico">📋</span>메뉴등록
   </a>
 </nav>

@@ -8,6 +8,7 @@ from collections import defaultdict
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session, send_file
 
 import gspread
+from gspread.exceptions import WorksheetNotFound
 from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
@@ -1075,10 +1076,159 @@ def calendar_view():
     )
 
 
+@app.route('/api/employees')
+def api_employees():
+    emps = get_employees()
+    result = []
+    for e in emps:
+        eid = str(e.get('사원번호', '')).strip()
+        result.append({
+            'emp_id':  eid,
+            'name':    e.get('성명', ''),
+            'factory': 'MJ 1공장' if eid.upper().startswith('M') else 'SCS 2공장',
+        })
+    return jsonify(result)
+
+
 @app.route('/api/refresh')
 def api_refresh():
     _clear_cache()
     return jsonify({'ok': True, 'ts': datetime.now().strftime('%H:%M:%S')})
+
+
+# ── 얼굴인식 ─────────────────────────────────────────────────────
+FACE_SHEET = '얼굴인식'
+
+def _ensure_face_sheet(sh):
+    try:
+        return sh.worksheet(FACE_SHEET)
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title=FACE_SHEET, rows=200, cols=5)
+        ws.append_row(['사원번호', '성명', '공장', 'descriptor', '등록일시'])
+        return ws
+
+def get_face_descriptors():
+    def _f():
+        try:
+            sh = _open_sh()
+            ws = _ensure_face_sheet(sh)
+            rows = ws.get_all_values()[1:]
+            result = []
+            for r in rows:
+                if len(r) < 4 or not r[0].strip():
+                    continue
+                try:
+                    desc = json.loads(r[3])
+                    if isinstance(desc, list) and len(desc) == 128:
+                        result.append({
+                            'emp_id':     r[0].strip(),
+                            'name':       r[1].strip(),
+                            'factory':    r[2].strip() if len(r) > 2 else '',
+                            'descriptor': desc,
+                        })
+                except Exception:
+                    pass
+            return result
+        except Exception:
+            return []
+    return _cached('face_desc', _f, ttl=300)
+
+def save_face_descriptor(emp_id, name, factory, descriptor):
+    sh  = _open_sh()
+    ws  = _ensure_face_sheet(sh)
+    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    desc_json = json.dumps(descriptor)
+    rows = ws.get_all_values()
+    for i, r in enumerate(rows[1:], start=2):
+        if r and r[0].strip() == emp_id:
+            ws.update(range_name=f'A{i}:E{i}',
+                      values=[[emp_id, name, factory, desc_json, now_s]])
+            with _lock:
+                _cache.pop('face_desc', None)
+            return
+    ws.append_row([emp_id, name, factory, desc_json, now_s],
+                  value_input_option='USER_ENTERED')
+    with _lock:
+        _cache.pop('face_desc', None)
+
+
+@app.route('/checkin')
+def checkin():
+    return render_template('checkin.html')
+
+
+@app.route('/register_face')
+def register_face():
+    return render_template('register_face.html')
+
+
+@app.route('/api/face_descriptors')
+def api_face_descriptors():
+    return jsonify(get_face_descriptors())
+
+
+@app.route('/api/meal_checkin', methods=['POST'])
+def api_meal_checkin():
+    body   = request.get_json(silent=True) or {}
+    emp_id = body.get('emp_id', '').strip()
+    action = body.get('action', '').strip()
+
+    if not emp_id or action not in ('중식신청', '저녁도시락'):
+        return jsonify({'ok': False, 'error': '잘못된 요청'})
+
+    ds    = date.today().strftime('%Y-%m-%d')
+    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    emps     = get_employees()
+    emp      = next((e for e in emps if str(e.get('사원번호', '')).strip() == emp_id), {})
+    emp_name = emp.get('성명', '')
+    dept     = emp.get('부서명', '')
+    rank     = emp.get('직급', '')
+    gender   = emp.get('성별', '')
+    factory  = 'MJ 1공장' if emp_id.upper().startswith('M') else 'SCS 2공장'
+
+    try:
+        sh = _open_sh()
+        if action == '중식신청':
+            ws   = sh.worksheet('중식신청')
+            rows = ws.get_all_values()[1:]
+            for r in rows:
+                if len(r) >= 4 and r[0].strip() == ds and r[3].strip() == emp_id:
+                    return jsonify({'ok': False, 'error': '이미 신청됨'})
+            ws.append_row([ds, now_s, factory, emp_id, emp_name, dept, '신청'],
+                          value_input_option='USER_ENTERED')
+        else:
+            ws   = sh.worksheet('저녁도시락')
+            rows = ws.get_all_values()[1:]
+            for r in rows:
+                if len(r) >= 3 and r[0].strip() == ds and r[2].strip() == emp_id:
+                    return jsonify({'ok': False, 'error': '이미 신청됨'})
+            ws.append_row([ds, now_s, emp_id, emp_name, dept, rank, gender, '웹신청'],
+                          value_input_option='USER_ENTERED')
+
+        with _lock:
+            _cache.pop(f'meal_{ds}', None)
+        return jsonify({'ok': True, 'name': emp_name, 'dept': dept})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@app.route('/api/save_face_descriptor', methods=['POST'])
+def api_save_face_descriptor():
+    body       = request.get_json(silent=True) or {}
+    if body.get('pw', '') != MENU_PW:
+        return jsonify({'ok': False, 'error': '비밀번호 오류'})
+    emp_id     = body.get('emp_id', '').strip()
+    name       = body.get('name', '').strip()
+    factory    = body.get('factory', '').strip()
+    descriptor = body.get('descriptor', [])
+    if not emp_id or not isinstance(descriptor, list) or len(descriptor) != 128:
+        return jsonify({'ok': False, 'error': '잘못된 데이터'})
+    try:
+        save_face_descriptor(emp_id, name, factory, descriptor)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
 
 
 if __name__ == '__main__':

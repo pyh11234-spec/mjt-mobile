@@ -46,15 +46,15 @@
     .appr-badge {
       font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 12px;
     }
-    .appr-badge.s-대기    { background: #374151; color: #9CA3AF; }
+    .appr-badge.s-대기    { background: #374151; color: #D1D5DB; }
     .appr-badge.s-1차완료 { background: #1D4ED8; color: white; }
     .appr-badge.s-최종승인{ background: #065F46; color: #6EE7B7; }
     .appr-badge.s-반려    { background: #7F1D1D; color: #FCA5A5; }
-    .appr-info { font-size: 11px; color: #64748B; }
-    .appr-info b { color: #94A3B8; }
+    .appr-info { font-size: 11px; color: #CBD5E1; }
+    .appr-info b { color: #F1F5F9; font-weight: 700; }
     .btn-appr {
-      font-size: 11px; font-weight: 700; border: none; border-radius: 6px;
-      padding: 5px 11px; cursor: pointer;
+      font-size: 12px; font-weight: 700; border: none; border-radius: 6px;
+      padding: 5px 13px; cursor: pointer;
     }
     .btn-appr.approve { background: #059669; color: white; }
     .btn-appr.reject  { background: #DC2626; color: white; }
@@ -130,58 +130,59 @@
     .appr-cell.approved .appr-stamp-area { background: #F0FFF4; }
 
     /* 메인 테이블 */
-    .main-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .main-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
     .main-tbl th, .main-tbl td {
       border: 1px solid #9E9E9E;
-      padding: 4px 5px;
+      padding: 5px 6px;
       vertical-align: middle;
       text-align: center;
+      color: #111827;
     }
     .main-tbl thead th {
-      background: #1565C0; color: white; font-weight: 700; font-size: 11px; white-space: nowrap;
+      background: #1565C0; color: #FFFFFF; font-weight: 700; font-size: 12px; white-space: nowrap;
     }
-    .main-tbl thead .hdr-당직 { background: #1976D2; }
-    .main-tbl thead .hdr-date  { background: #0D47A1; min-width: 72px; }
-    .main-tbl thead .hdr-gl    { background: #1565C0; font-size: 10px; color: #BBDEFB; }
+    .main-tbl thead .hdr-당직 { background: #1976D2; color: #FFFFFF; }
+    .main-tbl thead .hdr-date  { background: #0D47A1; color: #FFFFFF; min-width: 76px; }
+    .main-tbl thead .hdr-gl    { background: #1565C0; font-size: 10px; color: #E3F2FD; }
     .main-tbl tbody td.dept-cell {
-      background: #ECEFF1; font-weight: 700; font-size: 10px; width: 52px;
+      background: #ECEFF1; color: #1A237E; font-weight: 700; font-size: 11px; width: 56px;
     }
-    .main-tbl tbody td.no-cell  { width: 28px; color: #555; }
-    .main-tbl tbody td.name-cell { font-weight: 700; width: 54px; white-space: nowrap; }
+    .main-tbl tbody td.no-cell  { width: 28px; color: #374151; font-size: 11px; }
+    .main-tbl tbody td.name-cell { font-weight: 700; width: 58px; white-space: nowrap; color: #111827; }
     .main-tbl tbody td.task-cell {
-      text-align: left; min-width: 140px; white-space: normal;
-      word-break: break-all; line-height: 1.4;
+      text-align: left; min-width: 150px; white-space: normal;
+      word-break: break-all; line-height: 1.5; color: #1F2937;
     }
     .main-tbl tbody td.time-cell {
-      font-size: 11px; font-weight: 600; color: #1A237E;
-      background: #E3F2FD; white-space: nowrap;
+      font-size: 12px; font-weight: 700; color: #1A237E;
+      background: #DBEAFE; white-space: nowrap;
     }
-    .main-tbl tbody td.time-empty { color: #ccc; }
+    .main-tbl tbody td.time-empty { color: #9CA3AF; font-size: 12px; }
     .main-tbl tbody td.note-cell {
-      font-size: 10px; color: #C62828; font-weight: 700; width: 64px; white-space: nowrap;
+      font-size: 11px; color: #B91C1C; font-weight: 700; width: 64px; white-space: nowrap;
     }
     .main-tbl .total-row td {
-      background: #388E3C; color: white; font-weight: 700; font-size: 12px;
+      background: #2E7D32; color: #FFFFFF; font-weight: 700; font-size: 13px;
     }
-    .main-tbl .total-row td.total-lbl { background: #2E7D32; }
+    .main-tbl .total-row td.total-lbl { background: #1B5E20; color: #FFFFFF; }
 
     /* ── 주의사항 섹션 ── */
-    .notes { margin: 0; padding: 8px 10px; border: 1px solid #9E9E9E; border-top: none; font-size: 11px; }
+    .notes { margin: 0; padding: 10px 12px; border: 1px solid #9E9E9E; border-top: none; font-size: 12px; }
     .note-check {
-      font-weight: 700; margin-bottom: 6px;
+      font-weight: 700; margin-bottom: 8px; color: #111827;
       display: flex; align-items: flex-start; gap: 4px;
     }
-    .note-check .icon { color: #C62828; flex-shrink: 0; }
+    .note-check .icon { color: #B91C1C; flex-shrink: 0; }
     .note-bus {
-      background: #EF5350; color: white; font-weight: 700;
-      padding: 5px 10px; margin-bottom: 4px; border-radius: 2px;
+      background: #C62828; color: #FFFFFF; font-weight: 700;
+      padding: 6px 12px; margin-bottom: 6px; border-radius: 3px; font-size: 12px;
     }
     .note-meal {
-      background: #FFF176; color: #333; font-weight: 600;
-      padding: 5px 10px; margin-bottom: 6px; border-radius: 2px;
+      background: #FFF176; color: #1A237E; font-weight: 700;
+      padding: 6px 12px; margin-bottom: 8px; border-radius: 3px; font-size: 12px;
     }
-    .note-circle { margin-bottom: 4px; color: #333; line-height: 1.5; }
-    .note-circle em { color: #C62828; font-style: normal; font-weight: 700; }
+    .note-circle { margin-bottom: 5px; color: #1F2937; line-height: 1.6; font-size: 12px; }
+    .note-circle em { color: #B91C1C; font-style: normal; font-weight: 700; }
 
     /* 로딩 */
     #saving-msg {
