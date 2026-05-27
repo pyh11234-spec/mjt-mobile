@@ -1,0 +1,299 @@
+{% extends 'base.html' %}
+{% set page = 'checkin' %}
+{% block content %}
+
+<style>
+  .cam-box {
+    position: relative;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    aspect-ratio: 4/3;
+    max-height: 320px;
+  }
+  .cam-box video, .cam-box canvas {
+    position: absolute; top:0; left:0;
+    width:100%; height:100%;
+    object-fit: cover;
+  }
+  .cam-box canvas { pointer-events: none; }
+  .btn-capture {
+    background: #3B82F6;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    width: 100%;
+    cursor: pointer;
+  }
+  .btn-capture:disabled { background: #334155; color: #64748B; cursor: not-allowed; }
+  .btn-save {
+    background: #22C55E;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    width: 100%;
+    cursor: pointer;
+    display: none;
+  }
+  .status-msg {
+    font-size: 13px;
+    color: #94A3B8;
+    text-align: center;
+    padding: 8px 0;
+    min-height: 36px;
+  }
+  .status-msg.ok  { color: #22C55E; }
+  .status-msg.err { color: #EF4444; }
+  .form-row {
+    background: #1E293B;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+  .form-lbl { font-size: 11px; color: #64748B; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; }
+  .form-ctrl {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #F1F5F9;
+    font-size: 15px;
+    width: 100%;
+    font-family: inherit;
+  }
+  select.form-ctrl option { background: #1E293B; }
+  input.form-ctrl[type=password] { letter-spacing: 3px; }
+  .preview-box {
+    background: #1E293B;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: none;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .preview-face {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #3B82F6;
+    background: #0F172A;
+  }
+  .preview-info .name { font-size: 15px; font-weight: 700; }
+  .preview-info .sub  { font-size: 12px; color: #94A3B8; margin-top: 2px; }
+</style>
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">얼굴 등록</div>
+    <div class="pg-sub">체크인용 얼굴 데이터 등록 (관리자)</div>
+  </div>
+  <a href="/checkin" style="font-size:13px;color:#64748B;text-decoration:none;border:1px solid #334155;border-radius:6px;padding:5px 12px;">체크인으로</a>
+</div>
+
+<div class="px-3 pt-3 pb-5">
+
+  <div id="loadingBox" class="status-msg">⏳ 모델 로딩 중…</div>
+
+  <!-- 사원 선택 -->
+  <div class="form-row">
+    <div class="form-lbl">사원 선택</div>
+    <select class="form-ctrl" id="selEmp">
+      <option value="">-- 사원을 선택하세요 --</option>
+    </select>
+  </div>
+
+  <!-- 비밀번호 -->
+  <div class="form-row">
+    <div class="form-lbl">관리자 비밀번호</div>
+    <input type="password" class="form-ctrl" id="inPw" placeholder="비밀번호 입력" maxlength="20">
+  </div>
+
+  <!-- 카메라 -->
+  <div class="cam-box mb-3" id="camBox">
+    <video id="vid" autoplay muted playsinline></video>
+    <canvas id="cvs"></canvas>
+  </div>
+
+  <!-- 미리보기 -->
+  <div class="preview-box" id="previewBox">
+    <canvas class="preview-face" id="previewCanvas" width="64" height="64"></canvas>
+    <div class="preview-info">
+      <div class="name" id="previewName"></div>
+      <div class="sub" id="previewSub">캡처됨 – 저장하려면 "등록" 클릭</div>
+    </div>
+  </div>
+
+  <div class="status-msg" id="statusMsg">카메라에 얼굴을 맞추고 캡처를 누르세요</div>
+
+  <button class="btn-capture mb-2" id="btnCapture" disabled onclick="doCapture()">📸 얼굴 캡처</button>
+  <button class="btn-save"         id="btnSave"              onclick="doSave()">✅ 등록 완료</button>
+
+</div>
+
+<script>
+const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+let capturedDescriptor = null;
+let capturedFaceCanvas = null;
+let stream = null;
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('statusMsg');
+  el.textContent = msg;
+  el.className   = 'status-msg ' + (cls || '');
+}
+
+// 사원 목록 로드
+async function loadEmps() {
+  try {
+    const res  = await fetch('/api/face_descriptors');
+    const existing = await res.json();
+    const existIds = new Set(existing.map(e => e.emp_id));
+
+    const r2   = await fetch('/');
+    // 직접 API가 없으므로 사원마스터는 따로 제공 안 됨
+    // 대신 간단히 emp_id 직접 입력란으로 대체
+  } catch (e) {}
+}
+
+// face-api 초기화
+async function initFaceApi() {
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js';
+    s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+    faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
+    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+  ]);
+  document.getElementById('loadingBox').style.display = 'none';
+  document.getElementById('btnCapture').disabled = false;
+  setStatus('카메라에 얼굴을 맞추고 캡처를 누르세요');
+}
+
+// 카메라 시작
+async function startCam() {
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user', width: { ideal: 640 } },
+    audio: false,
+  });
+  const vid = document.getElementById('vid');
+  vid.srcObject = stream;
+}
+
+// 캡처
+async function doCapture() {
+  const vid  = document.getElementById('vid');
+  const det  = await faceapi
+    .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions({ inputSize: 224 }))
+    .withFaceLandmarks(true)
+    .withFaceDescriptor();
+
+  if (!det) {
+    setStatus('얼굴을 찾지 못했습니다. 다시 시도하세요.', 'err'); return;
+  }
+
+  capturedDescriptor = Array.from(det.descriptor);
+
+  // 미리보기 캔버스에 얼굴 그리기
+  const box  = det.detection.box;
+  const tmpC = document.createElement('canvas');
+  tmpC.width = vid.videoWidth; tmpC.height = vid.videoHeight;
+  tmpC.getContext('2d').drawImage(vid, 0, 0);
+
+  const pc  = document.getElementById('previewCanvas');
+  const pct = pc.getContext('2d');
+  pct.clearRect(0, 0, 64, 64);
+  pct.save();
+  pct.beginPath();
+  pct.arc(32, 32, 32, 0, Math.PI * 2); pct.clip();
+  pct.drawImage(tmpC,
+    Math.max(0, box.x - 10), Math.max(0, box.y - 10),
+    box.width + 20, box.height + 20,
+    0, 0, 64, 64);
+  pct.restore();
+
+  const empSel = document.getElementById('selEmp');
+  const name   = empSel.options[empSel.selectedIndex]?.text || empSel.value;
+  document.getElementById('previewName').textContent = name;
+  document.getElementById('previewBox').style.display = 'flex';
+  document.getElementById('btnSave').style.display     = 'block';
+  setStatus('캡처 완료! 얼굴을 확인한 뒤 등록 버튼을 누르세요.', 'ok');
+}
+
+// 저장
+async function doSave() {
+  if (!capturedDescriptor) { setStatus('먼저 캡처해 주세요.', 'err'); return; }
+  const empSel  = document.getElementById('selEmp');
+  const emp_id  = empSel.value.trim();
+  const emp_opt = empSel.options[empSel.selectedIndex];
+  const name    = emp_opt ? emp_opt.dataset.name || emp_opt.text : emp_id;
+  const factory = emp_opt ? (emp_opt.dataset.factory || '') : '';
+  const pw      = document.getElementById('inPw').value;
+
+  if (!emp_id) { setStatus('사원을 선택해 주세요.', 'err'); return; }
+  if (!pw)     { setStatus('비밀번호를 입력해 주세요.', 'err'); return; }
+
+  document.getElementById('btnSave').disabled = true;
+  setStatus('저장 중…');
+
+  try {
+    const res  = await fetch('/api/save_face_descriptor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pw, emp_id, name, factory, descriptor: capturedDescriptor }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      setStatus(`✅ ${name} 얼굴 등록 완료!`, 'ok');
+      capturedDescriptor = null;
+      document.getElementById('previewBox').style.display = 'none';
+      document.getElementById('btnSave').style.display     = 'none';
+    } else {
+      setStatus('저장 실패: ' + (data.error || '알 수 없는 오류'), 'err');
+    }
+  } catch (e) {
+    setStatus('네트워크 오류', 'err');
+  }
+  document.getElementById('btnSave').disabled = false;
+}
+
+// 사원 목록 API (직접 구현)
+async function loadEmpList() {
+  try {
+    const res  = await fetch('/api/employees');
+    const emps = await res.json();
+    const sel  = document.getElementById('selEmp');
+    emps.forEach(e => {
+      const opt = document.createElement('option');
+      opt.value            = e.emp_id;
+      opt.dataset.name     = e.name;
+      opt.dataset.factory  = e.factory;
+      opt.text             = `[${e.emp_id}] ${e.name} (${e.factory})`;
+      sel.appendChild(opt);
+    });
+  } catch (e) {
+    // 직접 입력으로 fallback
+    const sel = document.getElementById('selEmp');
+    sel.outerHTML = '<input class="form-ctrl" id="selEmp" placeholder="사원번호 직접 입력 (예: M001)">';
+  }
+}
+
+// 사원 목록 API 추가 필요하므로 fallback으로 직접 입력 사용
+(async () => {
+  await loadEmpList().catch(() => {});
+  await Promise.all([startCam(), initFaceApi()]);
+})();
+</script>
+
+{% endblock %}

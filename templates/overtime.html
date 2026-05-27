@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% set page = 'overtime' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">월별 연장근로 현황</div>
+    <div class="pg-sub">{{ year }}년 {{ '%02d'|format(month) }}월</div>
+  </div>
+  <button class="btn-ref" onclick="doRefresh()">↺ 새로고침</button>
+</div>
+
+<div class="px-3 pt-3">
+
+  <!-- 월 이동 -->
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
+    <a href="/overtime?year={{ prev_y }}&month={{ prev_m }}&fac={{ factory }}"
+       style="padding:6px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; color:var(--text2)">
+      ◀ {{ prev_m }}월
+    </a>
+    <span style="font-weight:700; font-size:15px">{{ year }}.{{ '%02d'|format(month) }}</span>
+    <a href="/overtime?year={{ next_y }}&month={{ next_m }}&fac={{ factory }}"
+       style="padding:6px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; color:var(--text2)">
+      {{ next_m }}월 ▶
+    </a>
+  </div>
+
+  <!-- 공장 필터 -->
+  <div style="display:flex; gap:8px; margin-bottom:14px">
+    {% for f in ['전체', '1공장', '2공장'] %}
+    <a href="/overtime?year={{ year }}&month={{ month }}&fac={{ f }}"
+       class="filter-tab {% if factory == f %}active{% endif %}">{{ f }}</a>
+    {% endfor %}
+  </div>
+
+  <!-- 위험도 요약 -->
+  <div class="c-card mb-3">
+    <div style="display:flex; text-align:center">
+      <div style="flex:1; padding:14px 0; border-right:1px solid var(--border)">
+        <div style="font-size:22px; font-weight:700; color:#7F1D1D">{{ n_max64 }}</div>
+        <div class="t2 fs11">64H 초과</div>
+      </div>
+      <div style="flex:1; padding:14px 0; border-right:1px solid var(--border)">
+        <div style="font-size:22px; font-weight:700; color:#EF4444">{{ n_danger }}</div>
+        <div class="t2 fs11">52H 초과</div>
+      </div>
+      <div style="flex:1; padding:14px 0; border-right:1px solid var(--border)">
+        <div style="font-size:22px; font-weight:700; color:#F97316">{{ n_warn }}</div>
+        <div class="t2 fs11">경고</div>
+      </div>
+      <div style="flex:1; padding:14px 0">
+        <div style="font-size:22px; font-weight:700; color:#22C55E">{{ n_safe }}</div>
+        <div class="t2 fs11">안전</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 사원별 목록 -->
+  <div class="sec-lbl">사원별 연장근로 ({{ n_total }}명)</div>
+  <div class="c-card mb-3">
+    {% set colors = {'max64':'#7F1D1D','danger':'#EF4444','warn':'#F97316','safe':'#22C55E'} %}
+    {% set labels = {'max64':'64H초과','danger':'52H초과','warn':'경고','safe':'안전'} %}
+
+    {% for r in ot_rows %}
+    <div class="c-row" style="{% if not loop.last %}border-bottom:1px solid var(--border){% endif %}">
+      <span class="dot dot-{{ r.status }}"></span>
+      <div style="flex:1; min-width:0">
+        <div style="display:flex; align-items:baseline; gap:6px">
+          <span style="font-weight:700; font-size:14px">{{ r.name }}</span>
+          <span class="t2 fs11">{{ r.dept[:6] }}</span>
+        </div>
+        <div class="t2 fs11" style="margin-top:1px">
+          잔업 {{ '%.0f'|format(r.jn) }}H &nbsp;·&nbsp;
+          특근 {{ '%.0f'|format(r.sp) }}H &nbsp;·&nbsp;
+          주간최대 {{ '%.0f'|format(r.worst_wk) }}H
+        </div>
+      </div>
+      <div style="text-align:right; flex-shrink:0">
+        <div style="font-size:16px; font-weight:700; color:{{ colors[r.status] }}">
+          {{ '%.0f'|format(r.total_ot) }}H
+        </div>
+        <div style="font-size:10px; color:{{ colors[r.status] }}">{{ labels[r.status] }}</div>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">근태 데이터 없음</div>
+    {% endfor %}
+  </div>
+
+  <div class="t2 fs11 text-end mb-3">업데이트: {{ updated }}</div>
+</div>
+
+{% endblock %}

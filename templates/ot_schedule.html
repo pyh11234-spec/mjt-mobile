@@ -1,0 +1,229 @@
+{% extends 'base.html' %}
+{% set page = 'schedule' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">특근 일정</div>
+    <div class="pg-sub">{{ mon }} ~ {{ sun }}</div>
+  </div>
+  <button class="btn-ref" onclick="doRefresh()">↺ 새로고침</button>
+</div>
+
+<div class="px-3 pt-3">
+
+  <!-- 주 이동 -->
+  {% set prev_week = (mon | string)[:10] %}
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
+    <a id="prevWeekBtn" href="#"
+       style="padding:6px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; color:var(--text2)">
+      ◀ 이전주
+    </a>
+    <span style="font-weight:700; font-size:14px">{{ mon[5:] }} ~ {{ sun[5:] }}</span>
+    <a id="nextWeekBtn" href="#"
+       style="padding:6px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; color:var(--text2)">
+      다음주 ▶
+    </a>
+  </div>
+
+  <!-- ──────────── 금일 연장근로 ──────────── -->
+  <div class="sec-lbl">금일 연장근로 ({{ today_ds }} {{ today_weekday }})</div>
+
+  <!-- 잔업 -->
+  <div class="c-card mb-3">
+    <div class="c-card-hd">
+      <span class="title">🌙 잔업</span>
+      <span class="badge-cnt" style="background:#0284C7">{{ today_jn|length }}명</span>
+    </div>
+    {% if today_jn %}
+    <div class="scroll-list">
+      {% for r in today_jn %}
+      <div class="c-row">
+        <div style="flex:1; min-width:0">
+          <span style="font-weight:700">{{ r.성명 }}</span>
+          <span class="t2 fs11" style="margin-left:6px">{{ r.부서명 }}</span>
+        </div>
+        <span style="font-size:15px; font-weight:700; color:#60A5FA">{{ r.값 }}H</span>
+        {% if r.비고 %}
+        <span class="t2 fs11" style="margin-left:6px">{{ r.비고 }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">잔업 기록 없음</div>
+    {% endif %}
+  </div>
+
+  <!-- 특근 -->
+  <div class="c-card mb-3">
+    <div class="c-card-hd">
+      <span class="title">🔧 특근</span>
+      <span class="badge-cnt" style="background:#7C3AED">{{ today_sp|length }}명</span>
+    </div>
+    {% if today_sp %}
+    <div class="scroll-list">
+      {% for r in today_sp %}
+      <div class="c-row">
+        <div style="flex:1; min-width:0">
+          <span style="font-weight:700">{{ r.성명 }}</span>
+          <span class="t2 fs11" style="margin-left:6px">{{ r.부서명 }}</span>
+        </div>
+        <span style="font-size:15px; font-weight:700; color:#A78BFA">{{ r.값 }}H</span>
+        {% if r.비고 %}
+        <span class="t2 fs11" style="margin-left:6px">{{ r.비고 }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">특근 기록 없음</div>
+    {% endif %}
+  </div>
+
+  <!-- ──────────── 이번 주 당직자 ──────────── -->
+  {% if duty_map %}
+  <div class="sec-lbl" style="margin-top:8px">🧑‍💼 이번 주 주말 당직자</div>
+  <div class="c-card mb-3">
+    {% for ds_key, duty_name in duty_map.items() %}
+    {% set wd_label = '토요일' if ds_key[8:10]|int and (ds_key | string) else '' %}
+    <div class="c-row" style="justify-content:space-between; align-items:center">
+      <div>
+        <span style="color:#94A3B8; font-size:12px">{{ ds_key[5:] | replace('-', '/') }}</span>
+        <span style="font-size:11px; color:#64748B; margin-left:6px">
+          {% if loop.index is odd %}토요일{% else %}일요일{% endif %}
+        </span>
+      </div>
+      <span style="font-weight:700; font-size:14px;
+                   color:{% if duty_name == '미배정' %}#64748B{% else %}#4ADE80{% endif %}">
+        {{ duty_name }}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ──────────── 금주 휴일 특근 일정 ──────────── -->
+  <div class="sec-lbl" style="margin-top:8px">금주 휴일 특근 일정</div>
+
+  {% if grouped_sp %}
+    {% for ds_key, records in grouped_sp.items() %}
+    {% set day_obj = ds_key %}
+    <div class="c-card mb-3">
+      <div class="c-card-hd">
+        <span class="title">
+          {{ ds_key[5:] | replace('-', '/') }}
+          <span style="font-size:11px; padding:2px 7px; border-radius:4px; margin-left:4px;
+                        background:#7C3AED22; color:#A78BFA">
+            {{ records[0]._label }}
+          </span>
+        </span>
+        <span class="badge-cnt" style="background:#7C3AED">{{ records|length }}명</span>
+      </div>
+      <div class="scroll-list">
+        {% for r in records %}
+        <div class="c-row" style="flex-wrap:wrap; gap:4px">
+          <div style="flex:1; min-width:0; display:flex; align-items:center; gap:8px">
+            <span style="font-weight:700; font-size:14px">{{ r.성명 }}</span>
+            <span class="t2 fs11">{{ r.부서명 }}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-shrink:0">
+            <span style="font-size:13px; font-weight:700; color:#A78BFA">{{ r.값 }}H</span>
+            {% set week_h = emp_week_ot.get(r.사원번호 | string, r.값) %}
+            <span style="font-size:10px; color:#94A3B8">주{{ week_h }}H</span>
+          </div>
+          {% if r.비고 %}
+          <div style="width:100%; font-size:11px; color:var(--text2); padding-left:2px">
+            📝 {{ r.비고 }}
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="c-card mb-3">
+    <div class="empty">이번 주 등록된 휴일 특근 없음</div>
+  </div>
+  {% endif %}
+
+  <!-- 신청서 버튼 — 결재라인(공장) 선택 -->
+  <div class="sec-lbl" style="margin-top:4px">📄 휴일 특근 신청서</div>
+  <div class="c-card mb-2" style="padding:14px 16px">
+    <div class="t2 fs12 mb-2" style="font-weight:600">결재라인 선택</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px">
+      <a id="btn-mj" href="/ot_schedule/preview?week={{ ref_ds }}&fac=MJ"
+         onclick="selectFac('MJ')"
+         style="display:block; border:2px solid #1565C0; background:#1565C020;
+                border-radius:10px; padding:12px; text-align:center; text-decoration:none;
+                transition:all 0.15s" id="btn-mj">
+        <div style="font-size:20px; margin-bottom:4px">🏭</div>
+        <div style="font-weight:700; font-size:14px; color:#60A5FA">MJ 1공장</div>
+        <div style="font-size:10px; color:#94A3B8; margin-top:2px">이광희 → 김신욱</div>
+      </a>
+      <a id="btn-scs" href="/ot_schedule/preview?week={{ ref_ds }}&fac=SCS"
+         onclick="selectFac('SCS')"
+         style="display:block; border:2px solid var(--border); background:var(--card);
+                border-radius:10px; padding:12px; text-align:center; text-decoration:none;
+                transition:all 0.15s">
+        <div style="font-size:20px; margin-bottom:4px">🏭</div>
+        <div style="font-weight:700; font-size:14px; color:var(--text2)">SCS 2공장</div>
+        <div style="font-size:10px; color:#94A3B8; margin-top:2px">이현승 → 김멋진</div>
+      </a>
+    </div>
+    <div id="preview-link-wrap" style="display:none">
+      <a id="preview-link" href="#"
+         style="display:block; width:100%; background:#1565C0; color:white;
+                border-radius:10px; padding:12px; font-size:14px; font-weight:700;
+                text-align:center; text-decoration:none">
+        📄 신청서 보기 · 저장
+      </a>
+    </div>
+    <div id="fac-hint" class="t2 fs11 text-center">위에서 공장을 선택하면 신청서로 이동합니다</div>
+  </div>
+
+  <div class="t2 fs11 text-end mb-3">업데이트: {{ updated }}</div>
+</div>
+
+<script>
+(function() {
+  var ref = '{{ ref_ds }}';
+  function addDays(ds, n) {
+    var d = new Date(ds);
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0, 10);
+  }
+  document.getElementById('prevWeekBtn').href = '/ot_schedule?week=' + addDays(ref, -7);
+  document.getElementById('nextWeekBtn').href = '/ot_schedule?week=' + addDays(ref, 7);
+})();
+
+var _selFac = null;
+function selectFac(fac) {
+  _selFac = fac;
+  var mj  = document.getElementById('btn-mj');
+  var scs = document.getElementById('btn-scs');
+  var ref = '{{ ref_ds }}';
+  if (fac === 'MJ') {
+    mj.style.borderColor  = '#1565C0';
+    mj.style.background   = '#1565C020';
+    mj.querySelector('div:nth-child(2)').style.color = '#60A5FA';
+    scs.style.borderColor = 'var(--border, #334155)';
+    scs.style.background  = 'var(--card, #1E293B)';
+    scs.querySelector('div:nth-child(2)').style.color = '#94A3B8';
+  } else {
+    scs.style.borderColor = '#7C3AED';
+    scs.style.background  = '#7C3AED20';
+    scs.querySelector('div:nth-child(2)').style.color = '#A78BFA';
+    mj.style.borderColor  = 'var(--border, #334155)';
+    mj.style.background   = 'var(--card, #1E293B)';
+    mj.querySelector('div:nth-child(2)').style.color = '#94A3B8';
+  }
+  var link = '/ot_schedule/preview?week=' + ref + '&fac=' + fac;
+  document.getElementById('preview-link').href = link;
+  document.getElementById('preview-link-wrap').style.display = 'block';
+  document.getElementById('fac-hint').style.display = 'none';
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% set page = 'menu' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">오늘 메뉴 등록</div>
+    <div class="pg-sub">{{ ds }} ({{ weekday }})</div>
+  </div>
+  {% if authed %}
+  <form method="post" style="margin:0">
+    <input type="hidden" name="action" value="logout">
+    <button type="submit" class="btn-ref">로그아웃</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="px-3 pt-4">
+
+  {% if not authed %}
+  <!-- 로그인 폼 -->
+  <div style="max-width:360px; margin:0 auto">
+    <div style="text-align:center; font-size:40px; margin-bottom:16px">🔒</div>
+    <div style="text-align:center; font-weight:700; font-size:18px; margin-bottom:6px">식당 관리자 로그인</div>
+    <div class="t2 fs13 text-center mb-4">메뉴 등록은 비밀번호 확인 후 가능합니다</div>
+
+    <form method="post">
+      <input type="hidden" name="action" value="login">
+      <input type="password" name="pw" placeholder="비밀번호 입력"
+        autofocus inputmode="numeric"
+        style="width:100%; background:var(--card); color:var(--text);
+               border:1px solid var(--border); border-radius:12px;
+               padding:14px 16px; font-size:18px; text-align:center;
+               letter-spacing:6px; margin-bottom:10px">
+      {% if error %}
+      <div style="color:var(--red); font-size:13px; text-align:center; margin-bottom:10px">{{ error }}</div>
+      {% endif %}
+      <button type="submit"
+        style="width:100%; background:var(--accent); color:white; border:none;
+               border-radius:12px; padding:14px; font-size:16px; font-weight:700; cursor:pointer">
+        확인
+      </button>
+    </form>
+  </div>
+
+  {% else %}
+  <!-- 메뉴 등록 폼 -->
+  {% if saved %}
+  <div style="background:#14532D; border:1px solid #22C55E; border-radius:12px;
+              padding:14px 16px; margin-bottom:16px; text-align:center;
+              color:#4ADE80; font-weight:600">
+    ✅ 메뉴가 등록되었습니다
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div style="background:#450A0A; border:1px solid var(--red); border-radius:12px;
+              padding:14px 16px; margin-bottom:16px; text-align:center;
+              color:#FCA5A5; font-size:13px">
+    ⚠️ {{ error }}
+  </div>
+  {% endif %}
+
+  <!-- 현재 등록된 메뉴 -->
+  {% if current_menu %}
+  <div class="c-card mb-3" style="padding:14px 16px; border-left:4px solid #F59E0B">
+    <div class="t2 fs11 mb-1">현재 등록된 메뉴</div>
+    <div style="font-size:15px; font-weight:600; white-space:pre-wrap">{{ current_menu }}</div>
+  </div>
+  {% endif %}
+
+  <form method="post">
+    <input type="hidden" name="action" value="save">
+    <div class="sec-lbl">오늘 점심 메뉴 입력</div>
+    <textarea name="menu" rows="6" placeholder="예)&#10;된장찌개&#10;제육볶음&#10;잡채&#10;깍두기&#10;공기밥"
+      style="width:100%; background:var(--card); color:var(--text);
+             border:1px solid var(--border); border-radius:12px;
+             padding:14px 16px; font-size:15px; resize:vertical;
+             line-height:1.8; margin-bottom:12px">{% if current_menu %}{{ current_menu }}{% endif %}</textarea>
+
+    <button type="submit"
+      style="width:100%; background:var(--accent); color:white; border:none;
+             border-radius:12px; padding:14px; font-size:16px; font-weight:700;
+             cursor:pointer; margin-bottom:8px">
+      📋 메뉴 등록
+    </button>
+  </form>
+
+  <div class="t2 fs11 text-center mt-2">등록하면 대시보드와 식수현황에 바로 표시됩니다</div>
+  {% endif %}
+
+</div>
+{% endblock %}

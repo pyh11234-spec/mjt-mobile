@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MJT 근태 신청</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0F172A;color:#E2E8F0;font-family:'맑은 고딕',sans-serif;min-height:100vh}
+.hdr{background:#1E3A5F;padding:14px 16px;display:flex;align-items:center;gap:12px}
+.hdr a{color:#93C5FD;text-decoration:none;font-size:13px}
+.hdr h1{font-size:17px;font-weight:700;flex:1}
+.card{background:#1E293B;border-radius:12px;padding:16px;margin:12px}
+.card-title{font-size:11px;color:#64748B;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+label{display:block;font-size:12px;color:#94A3B8;margin-bottom:4px}
+select,input{width:100%;padding:10px 12px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#E2E8F0;font-size:14px;margin-bottom:12px;outline:none}
+select:focus,input:focus{border-color:#3B82F6}
+.att-types{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
+.att-btn{padding:10px 4px;background:#0F172A;border:2px solid #334155;border-radius:8px;color:#94A3B8;font-size:12px;text-align:center;cursor:pointer;transition:all .2s}
+.att-btn.sel{border-color:#3B82F6;background:#1E3A5F;color:#93C5FD;font-weight:700}
+.submit-btn{width:100%;padding:14px;background:#1D4ED8;border:none;border-radius:10px;color:white;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px}
+.submit-btn:disabled{opacity:.5}
+.duty-card{background:#0F172A;border-radius:8px;padding:10px 12px}
+.duty-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #1E293B;font-size:13px}
+.duty-row:last-child{border:none}
+.duty-date{color:#64748B}
+.duty-name{color:#4ADE80;font-weight:700}
+.duty-name.unassigned{color:#64748B;font-style:italic}
+.result{display:none;margin:12px;padding:14px;border-radius:10px;text-align:center;font-size:15px;font-weight:700}
+.result.ok{background:#064E3B;color:#4ADE80}
+.result.err{background:#450A0A;color:#FCA5A5}
+.val-row{display:flex;gap:8px;align-items:center}
+.val-row input{margin-bottom:0;flex:1}
+.val-unit{color:#64748B;font-size:13px;white-space:nowrap}
+.notice{background:#1C1917;border-left:3px solid #F59E0B;padding:10px 12px;border-radius:0 8px 8px 0;font-size:12px;color:#FCD34D;margin-bottom:8px}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <a href="/">← 홈</a>
+  <h1>📋 근태 신청</h1>
+  <span style="font-size:12px;color:#64748B">{{ today_ds }}</span>
+</div>
+
+<!-- 주말 당직자 -->
+{% if duty %}
+<div class="card">
+  <div class="card-title">이번 주 주말 당직자</div>
+  <div class="duty-card">
+    {% for ds_label, name in duty.items() %}
+    <div class="duty-row">
+      <span class="duty-date">{{ ds_label }}</span>
+      <span class="duty-name {% if name == '미배정' %}unassigned{% endif %}">{{ name }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- 신청 폼 -->
+<div class="card">
+  <div class="card-title">근태 신청</div>
+
+  <div class="notice">특근·잔업은 사전 신청 후 승인이 필요합니다. 신청 내용은 데스크탑 근태관리 시스템에 반영됩니다.</div>
+
+  <label>사원</label>
+  <select id="emp_id">
+    <option value="">-- 사원 선택 --</option>
+    {% for e in employees %}
+    <option value="{{ e.사원번호 }}">{{ e.성명 }} ({{ e.부서명 }})</option>
+    {% endfor %}
+  </select>
+
+  <label>신청 날짜</label>
+  <input type="date" id="att_date" value="{{ today_ds }}">
+
+  <label>근태 유형</label>
+  <div class="att-types" id="att_types">
+    <div class="att-btn" data-type="잔업">잔업</div>
+    <div class="att-btn" data-type="특근">특근</div>
+    <div class="att-btn" data-type="연차">연차</div>
+    <div class="att-btn" data-type="오전반차">오전반차</div>
+    <div class="att-btn" data-type="오후반차">오후반차</div>
+    <div class="att-btn" data-type="계절휴가">계절휴가</div>
+    <div class="att-btn" data-type="하계휴가">하계휴가</div>
+    <div class="att-btn" data-type="탄력오전">탄력오전</div>
+    <div class="att-btn" data-type="탄력오후">탄력오후</div>
+  </div>
+
+  <div id="val_row" style="display:none">
+    <label id="val_label">시간 (H)</label>
+    <div class="val-row">
+      <input type="number" id="att_value" min="0.5" max="24" step="0.5" placeholder="0">
+      <span class="val-unit" id="val_unit">시간</span>
+    </div>
+  </div>
+
+  <label>메모 (선택)</label>
+  <input type="text" id="memo" placeholder="사유 또는 메모">
+
+  <button class="submit-btn" id="submit_btn" onclick="submitRequest()">신청하기</button>
+</div>
+
+<div class="result" id="result_box"></div>
+
+<script>
+let selType = '';
+const OT_TYPES = ['잔업','특근'];
+const LV_TYPES = ['연차','계절휴가','하계휴가','기휴'];
+const HALF_LV  = ['오전반차','오후반차','탄력오전','탄력오후'];
+
+document.querySelectorAll('.att-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.att-btn').forEach(b => b.classList.remove('sel'));
+    btn.classList.add('sel');
+    selType = btn.dataset.type;
+    const vr = document.getElementById('val_row');
+    const vl = document.getElementById('val_label');
+    const vu = document.getElementById('val_unit');
+    const vi = document.getElementById('att_value');
+    if (OT_TYPES.includes(selType)) {
+      vr.style.display = 'block';
+      vl.textContent = '시간 (H)';
+      vu.textContent = '시간';
+      vi.value = '';
+      vi.step = '0.5';
+    } else if (LV_TYPES.includes(selType)) {
+      vr.style.display = 'block';
+      vl.textContent = '일수 (일)';
+      vu.textContent = '일';
+      vi.value = '1';
+      vi.step = '1';
+    } else if (HALF_LV.includes(selType)) {
+      vr.style.display = 'block';
+      vl.textContent = '일수';
+      vu.textContent = '일';
+      vi.value = '0.5';
+      vi.step = '0.5';
+    } else {
+      vr.style.display = 'none';
+    }
+  });
+});
+
+async function submitRequest() {
+  const empId = document.getElementById('emp_id').value;
+  const ds    = document.getElementById('att_date').value;
+  const val   = document.getElementById('att_value').value || '0';
+  const memo  = document.getElementById('memo').value;
+  const res   = document.getElementById('result_box');
+  const btn   = document.getElementById('submit_btn');
+
+  if (!empId) { alert('사원을 선택하세요'); return; }
+  if (!ds)    { alert('날짜를 선택하세요'); return; }
+  if (!selType){ alert('근태 유형을 선택하세요'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '신청 중...';
+
+  try {
+    const r = await fetch('/api/attendance_request', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({emp_id: empId, date: ds, att_type: selType,
+                            value: parseFloat(val)||0, memo})
+    });
+    const data = await r.json();
+    res.style.display = 'block';
+    if (data.ok) {
+      res.className = 'result ok';
+      res.textContent = `✅ ${data.name}님 ${selType} 신청 완료`;
+      document.getElementById('memo').value = '';
+      selType = '';
+      document.querySelectorAll('.att-btn').forEach(b => b.classList.remove('sel'));
+      document.getElementById('val_row').style.display = 'none';
+    } else {
+      res.className = 'result err';
+      res.textContent = `⚠ ${data.error}`;
+    }
+  } catch(e) {
+    res.style.display = 'block';
+    res.className = 'result err';
+    res.textContent = '⚠ 네트워크 오류';
+  }
+  btn.disabled = false;
+  btn.textContent = '신청하기';
+  res.scrollIntoView({behavior:'smooth'});
+}
+</script>
+</body>
+</html>

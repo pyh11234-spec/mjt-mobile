@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0F172A">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>MJT 현황</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <style>
+    :root {
+      --bg:      #0F172A;
+      --card:    #1E293B;
+      --border:  #334155;
+      --text:    #F1F5F9;
+      --text2:   #94A3B8;
+      --accent:  #3B82F6;
+      --green:   #22C55E;
+      --amber:   #F59E0B;
+      --red:     #EF4444;
+      --orange:  #F97316;
+      --purple:  #A855F7;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Apple SD Gothic Neo', '맑은 고딕', sans-serif;
+      padding-bottom: 72px;
+      min-height: 100vh;
+    }
+    a { color: inherit; text-decoration: none; }
+
+    /* 카드 */
+    .c-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .c-card-hd {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .c-card-hd .title { font-weight: 700; font-size: 14px; }
+    .c-card-hd .badge-cnt {
+      font-size: 13px; font-weight: 700;
+      padding: 2px 10px; border-radius: 20px;
+    }
+
+    /* 리스트 행 */
+    .c-row {
+      padding: 10px 16px;
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .c-row:last-child { border-bottom: none; }
+
+    /* KPI */
+    .kpi-val { font-size: 26px; font-weight: 700; line-height: 1.1; }
+    .kpi-lbl { font-size: 11px; color: var(--text2); margin-top: 3px; }
+
+    /* 상태 점 */
+    .dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-max64  { background: #7F1D1D; }
+    .dot-danger { background: var(--red); }
+    .dot-warn   { background: var(--amber); }
+    .dot-safe   { background: var(--green); }
+
+    /* 하단 네비 */
+    .nav-btm {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      display: flex;
+      z-index: 1000;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .nav-btm a {
+      flex: 1; text-align: center;
+      padding: 10px 0 8px;
+      color: var(--text2);
+      font-size: 10px;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      transition: color 0.15s;
+    }
+    .nav-btm a.active { color: var(--accent); }
+    .nav-btm .ico { font-size: 22px; }
+
+    /* 페이지 헤더 */
+    .pg-hd {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px 12px;
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .pg-hd .pg-title { font-weight: 700; font-size: 16px; }
+    .pg-hd .pg-sub   { font-size: 12px; color: var(--text2); margin-top: 1px; }
+
+    /* 새로고침 버튼 */
+    .btn-ref {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text2);
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .btn-ref:active { background: var(--border); }
+
+    /* 텍스트 */
+    .t2   { color: var(--text2); }
+    .fs11 { font-size: 11px; }
+    .fs12 { font-size: 12px; }
+    .fs13 { font-size: 13px; }
+
+    /* 빈 상태 */
+    .empty { text-align: center; padding: 20px; color: var(--text2); font-size: 13px; }
+
+    /* 스크롤 영역 */
+    .scroll-list { max-height: 260px; overflow-y: auto; }
+
+    /* 섹션 레이블 */
+    .sec-lbl {
+      font-size: 11px; font-weight: 600;
+      color: var(--text2);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    /* 필터 탭 */
+    .filter-tab {
+      display: inline-block;
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      color: var(--text2);
+    }
+    .filter-tab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+  </style>
+</head>
+<body>
+
+{% block content %}{% endblock %}
+
+<!-- 하단 네비게이션 -->
+<nav class="nav-btm" style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+  <a href="/"             class="{% if page=='home'     %}active{% endif %}" style="min-width:56px">
+    <span class="ico">🏠</span>대시보드
+  </a>
+  <a href="/checkin"      class="{% if page=='checkin'  %}active{% endif %}" style="min-width:56px">
+    <span class="ico">📷</span>체크인
+  </a>
+  <a href="/overtime"     class="{% if page=='overtime' %}active{% endif %}" style="min-width:56px">
+    <span class="ico">⏰</span>월별<br>연장근로
+  </a>
+  <a href="/ot_schedule"  class="{% if page=='schedule' %}active{% endif %}" style="min-width:56px">
+    <span class="ico">📅</span>연장근로<br>실시간현황
+  </a>
+  <a href="/meal"         class="{% if page=='meal'     %}active{% endif %}" style="min-width:56px">
+    <span class="ico">🍱</span>식수현황
+  </a>
+  <a href="/calendar"     class="{% if page=='calendar' %}active{% endif %}" style="min-width:56px">
+    <span class="ico">📆</span>월중행사
+  </a>
+  <a href="/menu"         class="{% if page=='menu'     %}active{% endif %}" style="min-width:56px">
+    <span class="ico">📋</span>메뉴등록
+  </a>
+  <a href="/attendance_request" class="{% if page=='att_req' %}active{% endif %}" style="min-width:56px">
+    <span class="ico">✍️</span>근태신청
+  </a>
+</nav>
+
+<script>
+function doRefresh() {
+  const btn = event.currentTarget;
+  btn.textContent = '↻ 로딩…';
+  btn.disabled = true;
+  fetch('/api/refresh').finally(() => location.reload());
+}
+</script>
+</body>
+</html>
