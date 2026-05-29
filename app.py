@@ -1557,5 +1557,99 @@ def api_duty():
     return jsonify(get_duty_officers(year, month))
 
 
+# ═══════════════════════════════════════════════════════════════
+# v1.2: 관리자 통합 대시보드 (설비 PM + 개선제안)
+# ═══════════════════════════════════════════════════════════════
+import db_pg
+
+@app.route('/equipment')
+def equipment_dashboard():
+    """설비 PM 대시보드 — 관리자 (그룹장/공장장/임원/사장) 공통."""
+    if not db_pg.is_available():
+        return render_template('error.html',
+            error='Supabase 환경변수(SUPABASE_DB_URL) 미설정.\n'
+                  'Render 대시보드 → Environment 에 .env 값을 등록하세요.')
+    try:
+        # KPI
+        kpi = {
+            'total':  db_pg.query_one("SELECT COUNT(*) c FROM eq_machines WHERE active=TRUE")['c'],
+            'issues': db_pg.query_one("SELECT COUNT(*) c FROM eq_issues WHERE status IN ('신규','이관','점검중')")['c'],
+            'today':  db_pg.query_one("SELECT COUNT(*) c FROM eq_issues WHERE DATE(occurred_at)=CURRENT_DATE")['c'],
+            'this_m': db_pg.query_one(
+                "SELECT COUNT(*) c FROM eq_issues WHERE status='완료' "
+                "AND DATE_TRUNC('month', closed_at)=DATE_TRUNC('month', CURRENT_DATE)")['c'],
+        }
+        # 진행중 이슈 (최근 30)
+        issues = db_pg.query("""
+            SELECT issue_id, occurred_at, eq_id, process_id, major_type, detail, status
+            FROM eq_issues WHERE status IN ('신규','이관','점검중')
+            ORDER BY occurred_at DESC LIMIT 30
+        """)
+        # 공정별 이슈 빈도 (이번 달)
+        by_process = db_pg.query("""
+            SELECT process_id, COUNT(*) c FROM eq_issues
+            WHERE DATE_TRUNC('month', occurred_at) = DATE_TRUNC('month', CURRENT_DATE)
+            GROUP BY process_id ORDER BY c DESC LIMIT 10
+        """)
+        return render_template('equipment.html',
+                               kpi=kpi, issues=issues, by_process=by_process,
+                               updated=datetime.now().strftime('%H:%M'))
+    except Exception as e:
+        return render_template('error.html', error=f'설비 대시보드: {e}')
+
+
+@app.route('/improvement')
+def improvement_dashboard():
+    """개선제안 대시보드 — 5년치 검색 + 통계."""
+    if not db_pg.is_available():
+        return render_template('error.html',
+            error='Supabase 환경변수(SUPABASE_DB_URL) 미설정.')
+    try:
+        kw = request.args.get('q', '').strip()
+        kpi = {
+            'total': db_pg.query_one("SELECT COUNT(*) c FROM imp_suggestions")['c'],
+            'this_y': db_pg.query_one(
+                "SELECT COUNT(*) c FROM imp_suggestions WHERE year=EXTRACT(YEAR FROM CURRENT_DATE)")['c'],
+            'adopt': db_pg.query_one(
+                "SELECT COUNT(*) c FROM imp_suggestions WHERE status='채택'")['c'],
+            'wait': db_pg.query_one(
+                "SELECT COUNT(*) c FROM imp_sustainability WHERE status='대기'")['c'],
+        }
+        years = db_pg.query(
+            "SELECT year, COUNT(*) c FROM imp_suggestions "
+            "WHERE year IS NOT NULL GROUP BY year ORDER BY year")
+        if kw:
+            results = db_pg.query("""
+                SELECT year, quarter, receipt_no, proposer_name, title, grade
+                FROM imp_suggestions
+                WHERE to_tsvector('simple', COALESCE(title,'') || ' ' ||
+                                            COALESCE(current_state,'') || ' ' ||
+                                            COALESCE(idea,'')) @@ plainto_tsquery('simple', %s)
+                   OR title ILIKE %s
+                ORDER BY year DESC LIMIT 50
+            """, (kw, f'%{kw}%'))
+        else:
+            results = db_pg.query("""
+                SELECT year, quarter, receipt_no, proposer_name, title, grade
+                FROM imp_suggestions
+                ORDER BY year DESC, sug_id DESC LIMIT 30
+            """)
+        top = db_pg.query(
+            "SELECT proposer_name, COUNT(*) c FROM imp_suggestions "
+            "WHERE proposer_name IS NOT NULL "
+            "GROUP BY proposer_name ORDER BY c DESC LIMIT 10")
+        return render_template('improvement.html',
+                               kpi=kpi, years=years, results=results, top=top,
+                               kw=kw, updated=datetime.now().strftime('%H:%M'))
+    except Exception as e:
+        return render_template('error.html', error=f'개선제안 대시보드: {e}')
+
+
+@app.context_processor
+def _inject_version():
+    """모든 템플릿에 버전 변수 주입."""
+    return {'mjt_version': '1.2.0', 'mjt_version_date': '2026-05-29'}
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

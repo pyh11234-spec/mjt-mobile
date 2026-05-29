@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% set page = 'improvement' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">💡 개선 제안</div>
+    <div class="pg-sub">5년 누적 검색 + 통계</div>
+  </div>
+  <button class="btn-ref" onclick="location.reload()">↺</button>
+</div>
+
+<div class="px-3 pt-3">
+  <!-- KPI -->
+  <div class="row g-2 mb-3">
+    {% for key, label, color in [
+      ('total',  '5년 누적',     '#FCD34D'),
+      ('this_y', '올해',         '#60A5FA'),
+      ('adopt',  '채택 (전체)',  '#22C55E'),
+      ('wait',   '실효 점검',    '#F59E0B')
+    ] %}
+    <div class="col-6 col-md-3">
+      <div class="c-card" style="padding:12px;border-top:3px solid {{ color }}">
+        <div class="kpi-lbl">{{ label }}</div>
+        <div class="kpi-val" style="color:{{ color }}">{{ kpi[key] }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- 검색 -->
+  <form method="get" action="/improvement" style="margin-bottom:12px;display:flex;gap:6px">
+    <input type="text" name="q" value="{{ kw }}" placeholder="키워드 검색 (예: 조명, VTG, 안전)"
+           style="flex:1;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none">
+    <button type="submit" style="padding:10px 16px;background:var(--gold);color:#0B1120;border:none;border-radius:8px;font-weight:700;cursor:pointer">🔍</button>
+  </form>
+
+  {% if kw %}
+    <div class="sec-lbl">"{{ kw }}" 검색 결과 ({{ results|length }}건)</div>
+  {% else %}
+    <div class="sec-lbl">최근 제안</div>
+  {% endif %}
+  <div class="c-card mb-3">
+    {% if not results %}
+      <div class="empty">결과 없음</div>
+    {% else %}
+      <div class="scroll-list" style="max-height:none">
+      {% for r in results %}
+        {% set gc = {'S+':'#FCD34D','S':'#FACC15','A':'#4ADE80','B':'#22D3EE','C':'#94A3B8','D':'#F59E0B','E':'#FB923C','F':'#EF4444'}.get(r.grade,'#64748B') %}
+        <div class="c-row">
+          <div style="width:50px;text-align:center">
+            <div style="font-size:10px;color:var(--text2)">{{ r.year }}/{{ r.quarter or '-' }}</div>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</div>
+            <div style="font-size:11px;color:var(--text2)">{{ r.proposer_name }}  ·  {{ r.receipt_no }}</div>
+          </div>
+          {% if r.grade %}
+          <span style="font-size:11px;color:{{ gc }};font-weight:800;padding:2px 8px;border:1px solid {{ gc }};border-radius:4px">{{ r.grade }}</span>
+          {% endif %}
+        </div>
+      {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- 제안자 TOP -->
+  {% if top and not kw %}
+  <div class="sec-lbl">제안자 TOP 10 (5년)</div>
+  <div class="c-card mb-3">
+    {% for i in range(top|length) %}
+      {% set t = top[i] %}
+      {% set max_c = top[0].c %}
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border)">
+        <span style="width:24px;color:var(--gold);font-weight:700">{{ i + 1 }}</span>
+        <span style="width:90px;font-weight:600">{{ t.proposer_name }}</span>
+        <div style="flex:1;background:var(--bg2);height:14px;border-radius:3px;overflow:hidden">
+          <div style="width:{{ (t.c / max_c * 100)|int }}%;height:100%;background:linear-gradient(90deg,#FCD34D,#F59E0B)"></div>
+        </div>
+        <span style="width:36px;text-align:right;font-weight:700">{{ t.c }}</span>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="t2 fs11 text-end mb-3">마지막 갱신: {{ updated }}  ·  v{{ mjt_version }}</div>
+</div>
+
+{% endblock %}

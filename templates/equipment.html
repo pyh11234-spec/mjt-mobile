@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% set page = 'equipment' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">⚙ 설비 PM 관리</div>
+    <div class="pg-sub">실시간 이상 현황 + 진행 이슈</div>
+  </div>
+  <button class="btn-ref" onclick="location.reload()">↺</button>
+</div>
+
+<div class="px-3 pt-3">
+  <!-- KPI -->
+  <div class="row g-2 mb-3">
+    {% for key, label, color in [
+      ('total',  '전체 설비', '#60A5FA'),
+      ('issues', '진행중',     '#EF4444'),
+      ('today',  '오늘 접수',  '#F59E0B'),
+      ('this_m', '이번달 완료', '#22C55E')
+    ] %}
+    <div class="col-6 col-md-3">
+      <div class="c-card" style="padding:12px;border-top:3px solid {{ color }}">
+        <div class="kpi-lbl">{{ label }}</div>
+        <div class="kpi-val" style="color:{{ color }}">{{ kpi[key] }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- 공정별 (이번달) -->
+  {% if by_process %}
+  <div class="sec-lbl">이번 달 공정별 이슈</div>
+  <div class="c-card mb-3" style="padding:14px">
+    {% for p in by_process %}
+      {% set max_c = by_process[0].c %}
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px">
+        <span style="width:90px;color:var(--text2)">{{ p.process_id }}</span>
+        <div style="flex:1;background:var(--bg2);height:18px;border-radius:4px;overflow:hidden">
+          <div style="width:{{ (p.c / max_c * 100)|int }}%;height:100%;background:linear-gradient(90deg,#F59E0B,#EF4444)"></div>
+        </div>
+        <span style="width:32px;text-align:right;font-weight:700">{{ p.c }}</span>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- 진행중 이슈 -->
+  <div class="sec-lbl">진행중 이슈  ({{ issues|length }}건)</div>
+  <div class="c-card mb-3">
+    {% if not issues %}
+      <div class="empty">진행중 이슈 없음 ✨</div>
+    {% else %}
+      <div class="scroll-list">
+      {% for i in issues %}
+        {% set sc = {'신규':'#EF4444','이관':'#F59E0B','점검중':'#3B82F6'}.get(i.status,'#94A3B8') %}
+        <div class="c-row">
+          <span class="dot" style="background:{{ sc }}"></span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700">{{ i.eq_id }}  <span style="color:var(--text2);font-weight:400;font-size:11px">{{ i.process_id }}</span></div>
+            <div style="font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ i.detail or i.major_type }}</div>
+          </div>
+          <span style="font-size:10px;color:{{ sc }};font-weight:700">{{ i.status }}</span>
+        </div>
+      {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="t2 fs11 text-end mb-3">마지막 갱신: {{ updated }}  ·  v{{ mjt_version }}</div>
+</div>
+
+{% endblock %}
