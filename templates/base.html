@@ -407,6 +407,13 @@ const _isChrome     = /Chrome/.test(_ua) && !_isSamsung;
 const _isSafari     = /Safari/.test(_ua) && !/Chrome|CriOS|FxiOS/.test(_ua);
 const _dismissed    = localStorage.getItem('mjt_pwa_dismissed') === '1';
 
+// 인앱 브라우저 감지 (카카오톡/네이버/페이스북/인스타/라인) — PWA 설치 불가
+const _isKakao  = /KAKAOTALK/i.test(_ua);
+const _isNaver  = /NAVER\(inapp/i.test(_ua);
+const _isFB     = /FBAN|FBAV|Instagram/i.test(_ua);
+const _isLine   = /Line\//i.test(_ua);
+const _isInApp  = _isKakao || _isNaver || _isFB || _isLine;
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
@@ -417,8 +424,15 @@ window.addEventListener('beforeinstallprompt', (e) => {
 function _toggleChip() {
   const chip = document.getElementById('mjt-install-chip');
   if (!chip) return;
-  if (_isStandalone) chip.classList.remove('show');
-  else chip.classList.add('show');
+  if (_isStandalone) {
+    chip.classList.remove('show');
+    return;
+  }
+  // 인앱 브라우저면 라벨을 더 명확하게
+  if (_isInApp && _isAndroid) chip.textContent = '🌐 Chrome으로 열기';
+  else if (_isInApp && _isIOS) chip.textContent = '🌐 Safari로 열기';
+  else chip.textContent = '📱 앱설치';
+  chip.classList.add('show');
 }
 _toggleChip();
 window.addEventListener('appinstalled', () => {
@@ -458,15 +472,56 @@ function dismissInstall() {
   document.getElementById('pwa-install').classList.remove('show');
 }
 
-// 헤더 칩 클릭 → 환경별 안내 모달
+// Android intent URL — 현재 페이지를 Chrome으로 강제 오픈
+function _openInChrome() {
+  const noScheme = location.href.replace(/^https?:\/\//, '');
+  // intent URL: 설치된 Chrome으로 직접 열기. 실패 시 Play Store fallback.
+  location.href =
+    `intent://${noScheme}#Intent;scheme=https;` +
+    `package=com.android.chrome;` +
+    `S.browser_fallback_url=${encodeURIComponent('https://' + noScheme)};` +
+    `end`;
+}
+
+// 헤더 칩 클릭 → 환경별 처리
 function onInstallChip() {
+  // ── 인앱 브라우저(카톡/네이버/페북/라인) → Chrome으로 자동 전환 ──
+  if (_isInApp && _isAndroid) {
+    const body = document.getElementById('install-guide-body');
+    const btn  = document.getElementById('install-guide-btn');
+    body.innerHTML =
+      '<b style="color:#FCD34D">⚠ 카카오톡/네이버 인앱 브라우저에서는<br>앱 설치가 불가능합니다.</b><br><br>' +
+      '<b>아래 [Chrome으로 열기]</b> 버튼을 누르면<br>Chrome에서 자동으로 다시 열립니다.<br><br>' +
+      '<span style="color:#94A3B8;font-size:12px">Chrome으로 전환된 뒤 다시 [📱 앱설치]<br>버튼을 누르면 설치가 진행됩니다.</span>';
+    btn.style.display = 'inline-block';
+    btn.textContent = 'Chrome으로 열기';
+    btn.onclick = _openInChrome;
+    document.getElementById('install-guide-modal').style.display = 'flex';
+    return;
+  }
+  if (_isInApp && _isIOS) {
+    const body = document.getElementById('install-guide-body');
+    const btn  = document.getElementById('install-guide-btn');
+    body.innerHTML =
+      '<b style="color:#FCD34D">⚠ 카카오톡/네이버 인앱 브라우저에서는<br>앱 설치가 불가능합니다.</b><br><br>' +
+      '<b>우측 상단의 <span style="font-size:18px">⌄</span> 또는 <span style="font-size:18px">⋯</span></b> 를 눌러<br>' +
+      '<b>"Safari로 열기"</b> 또는 <b>"다른 브라우저로 열기"</b>를 선택해 주세요.<br><br>' +
+      '<span style="color:#94A3B8;font-size:12px">Safari로 열린 뒤 다시 [📱 앱설치]<br>버튼을 누르면 안내가 표시됩니다.</span>';
+    btn.style.display = 'none';
+    document.getElementById('install-guide-modal').style.display = 'flex';
+    return;
+  }
+
   const body = document.getElementById('install-guide-body');
   const btn  = document.getElementById('install-guide-btn');
+  // 기본 동작 복구
+  btn.textContent = '지금 설치';
+  btn.onclick = triggerInstallFromGuide;
+
   let html = '';
-  // Android Chrome + deferredPrompt 있음 → 바로 prompt 가능
   if (deferredPrompt) {
     html = '<b style="color:#FCD34D">바로 설치 가능합니다.</b><br>아래 <b>지금 설치</b> 버튼을 눌러 주세요.<br><br>' +
-           '<span style="color:#94A3B8;font-size:12px">설치 후 바탕화면에 MJT 아이콘이 생성되며, 앱처럼 풀스크린으로 실행됩니다.</span>';
+           '<span style="color:#94A3B8;font-size:12px">설치 후 바탕화면에 MJT 아이콘이 생성되며,<br>앱처럼 풀스크린으로 실행됩니다.</span>';
     btn.style.display = 'inline-block';
   } else if (_isIOS) {
     html = '<b style="color:#FCD34D">iPhone / iPad (Safari)</b><br>' +
@@ -479,7 +534,7 @@ function onInstallChip() {
     html = '<b style="color:#FCD34D">삼성 인터넷 브라우저</b><br>' +
            '① 하단의 <b>메뉴 (≡)</b> 또는 <b>북마크 + 모양</b> 아이콘을 탭<br>' +
            '② <b>"현재 페이지 추가"</b> → <b>"홈 화면"</b> 선택<br><br>' +
-           '<b style="color:#FCD34D">또는 Chrome 사용 시</b>: 주소창 우측 <b>⋮</b> → <b>"앱 설치"</b> 또는 <b>"홈 화면에 추가"</b><br><br>' +
+           '<b style="color:#FCD34D">또는 Chrome 사용 시</b>: 주소창 우측 <b>⋮</b> → <b>"앱 설치"</b><br><br>' +
            '<span style="color:#94A3B8;font-size:12px">Chrome에서 열면 자동 설치 버튼이 표시됩니다.</span>';
     btn.style.display = 'none';
   } else if (_isAndroid) {
@@ -487,7 +542,7 @@ function onInstallChip() {
            '① 주소창 우측의 <b>⋮ (세로 점 3개)</b> 메뉴 탭<br>' +
            '② <b>"앱 설치"</b> 또는 <b>"홈 화면에 추가"</b> 선택<br>' +
            '③ <b>"설치"</b> 확인<br><br>' +
-           '<span style="color:#94A3B8;font-size:12px">버튼이 안 보이면 페이지를 한 번 새로고침 후 다시 시도해 주세요.</span>';
+           '<span style="color:#94A3B8;font-size:12px">버튼이 안 보이면 페이지를 한 번 새로고침 후<br>다시 시도해 주세요.</span>';
     btn.style.display = 'none';
   } else {
     html = '<b>PC 브라우저</b><br>주소창 우측 <b>설치 아이콘</b> 또는 메뉴 → <b>"앱 설치"</b> 선택';
