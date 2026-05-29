@@ -159,7 +159,7 @@
 <body>
 
 <div class="hd">
-  <a href="/">&#8592;</a>
+  <a href="javascript:closeCard()">&#8592;</a>
   <div class="title">📷 얼굴인식 체크인</div>
   <a href="/register_face" class="reg-link">얼굴 등록</a>
 </div>
@@ -185,7 +185,7 @@
       <button class="btn-action btn-lunch"  onclick="doCheckin('중식신청')">🍚 중식신청</button>
       <button class="btn-action btn-dinner" onclick="doCheckin('저녁도시락')">📦 저녁도시락</button>
     </div>
-    <button class="btn-action btn-cancel" onclick="closeCard()">취소</button>
+    <button class="btn-action btn-cancel" onclick="closeCard()">취소 (메인으로 나가기)</button>
   </div>
 </div>
 
@@ -202,6 +202,27 @@ let lastRecognized     = {};  // emp_id → timestamp
 let currentEmp         = null;
 let scanning           = false;
 let detectTimer        = null;
+let cameraStream       = null;   // 페이지 떠날 때 정리용
+
+function stopCameraAndExit() {
+  scanning = false;
+  clearTimeout(detectTimer);
+  try {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(t => t.stop());
+      cameraStream = null;
+    }
+    const vid = document.getElementById('vid');
+    if (vid) { vid.pause(); vid.srcObject = null; }
+  } catch (e) { /* ignore */ }
+}
+
+// 페이지 이탈 시 카메라 즉시 종료
+window.addEventListener('pagehide',     stopCameraAndExit);
+window.addEventListener('beforeunload', stopCameraAndExit);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') stopCameraAndExit();
+});
 
 // ── UI helpers ──────────────────────────────────────────────────
 function setStatus(msg, type) {
@@ -219,9 +240,10 @@ function showToast(msg, type, duration) {
 }
 
 function closeCard() {
+  // 카메라 즉시 종료 후 메인 화면으로 이동 — 멈춘 듯한 느낌 제거
   document.getElementById('resultCard').classList.remove('show');
-  currentEmp = null;
-  scanning   = true;
+  stopCameraAndExit();
+  location.replace('/');
 }
 
 function showCard(emp) {
@@ -371,9 +393,8 @@ async function init() {
 
   // Camera
   document.getElementById('loadProg').textContent = '카메라 시작…';
-  let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
+    cameraStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
       audio: false,
     });
@@ -386,7 +407,7 @@ async function init() {
   }
 
   const vid = document.getElementById('vid');
-  vid.srcObject = stream;
+  vid.srcObject = cameraStream;
   await new Promise(r => vid.onloadedmetadata = r);
 
   document.getElementById('loadingEl').style.display = 'none';

@@ -91,6 +91,24 @@
       font-variant-numeric: tabular-nums;
     }
 
+    /* 헤더 앱설치 버튼 */
+    .mjt-install-chip {
+      display: none;
+      background: linear-gradient(135deg, var(--gold) 0%, var(--gold2) 100%);
+      color: #0B1120;
+      border: none;
+      border-radius: 20px;
+      padding: 5px 11px 5px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 1px 4px rgba(252,211,77,0.3);
+      white-space: nowrap;
+    }
+    .mjt-install-chip.show { display: inline-block; }
+    .mjt-install-chip:active { transform: translateY(1px); }
+
     /* ── 페이지 헤더 ─────────────────────── */
     .pg-hd {
       background: var(--card);
@@ -286,7 +304,8 @@
     <div class="b1">MJT SmartFactory</div>
     <div class="b2">통합 관리 시스템 · Mobile</div>
   </div>
-  <div class="mjt-brand-time" id="mjt-time"></div>
+  <button class="mjt-install-chip" id="mjt-install-chip" onclick="onInstallChip()">📱 앱설치</button>
+  <div class="mjt-brand-time" id="mjt-time" style="margin-left:8px"></div>
 </div>
 
 <!-- PWA 설치 안내 (Android: 자동 / iOS: 안내) -->
@@ -296,6 +315,22 @@
   <div class="s" id="pwa-install-text"></div>
   <button class="btn-install" id="pwa-install-btn" style="display:none"
           onclick="triggerInstall()">홈 화면에 추가</button>
+</div>
+
+<!-- 앱설치 안내 모달 (헤더 버튼 클릭 시) -->
+<div id="install-guide-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9999;align-items:center;justify-content:center;padding:16px" onclick="closeInstallGuide(event)">
+  <div style="background:#1E293B;border:2px solid #FCD34D;border-radius:14px;max-width:380px;width:100%;overflow:hidden" onclick="event.stopPropagation()">
+    <div style="background:linear-gradient(135deg,#FCD34D 0%,#F59E0B 100%);color:#0B1120;padding:14px 18px;font-weight:800;display:flex;align-items:center;gap:8px">
+      <span style="font-size:18px">📱</span> 바탕화면에 MJT 앱 설치하기
+    </div>
+    <div style="padding:18px;color:#F1F5F9;font-size:13px;line-height:1.7" id="install-guide-body">
+      <!-- 동적 -->
+    </div>
+    <div style="padding:0 18px 16px;display:flex;gap:8px">
+      <button onclick="closeInstallGuide()" style="flex:1;padding:11px;background:#334155;color:#fff;border:none;border-radius:8px;font-weight:700;font-family:inherit;cursor:pointer">닫기</button>
+      <button id="install-guide-btn" onclick="triggerInstallFromGuide()" style="display:none;flex:1;padding:11px;background:#FCD34D;color:#0B1120;border:none;border-radius:8px;font-weight:800;font-family:inherit;cursor:pointer">지금 설치</button>
+    </div>
+  </div>
 </div>
 
 {% block content %}{% endblock %}
@@ -360,18 +395,36 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// ── PWA 설치 안내 ───────────────────────────────────────
+// ── PWA 설치 ───────────────────────────────────────────
 let deferredPrompt = null;
 const _isStandalone = window.matchMedia('(display-mode: standalone)').matches
                     || window.navigator.standalone === true;
-const _isIOS  = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-const _isAndroid = /Android/.test(navigator.userAgent);
-const _dismissed = localStorage.getItem('mjt_pwa_dismissed') === '1';
+const _ua    = navigator.userAgent;
+const _isIOS = /iPad|iPhone|iPod/.test(_ua) && !window.MSStream;
+const _isAndroid    = /Android/.test(_ua);
+const _isSamsung    = /SamsungBrowser/.test(_ua);
+const _isChrome     = /Chrome/.test(_ua) && !_isSamsung;
+const _isSafari     = /Safari/.test(_ua) && !/Chrome|CriOS|FxiOS/.test(_ua);
+const _dismissed    = localStorage.getItem('mjt_pwa_dismissed') === '1';
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
   _showInstallBanner('android');
+});
+
+// 헤더 칩 버튼 표시 (이미 설치된 경우만 숨김)
+function _toggleChip() {
+  const chip = document.getElementById('mjt-install-chip');
+  if (!chip) return;
+  if (_isStandalone) chip.classList.remove('show');
+  else chip.classList.add('show');
+}
+_toggleChip();
+window.addEventListener('appinstalled', () => {
+  _toggleChip();
+  document.getElementById('pwa-install').classList.remove('show');
+  closeInstallGuide();
 });
 
 function _showInstallBanner(mode) {
@@ -405,7 +458,56 @@ function dismissInstall() {
   document.getElementById('pwa-install').classList.remove('show');
 }
 
-// iOS는 beforeinstallprompt가 안 뜨므로 직접 안내
+// 헤더 칩 클릭 → 환경별 안내 모달
+function onInstallChip() {
+  const body = document.getElementById('install-guide-body');
+  const btn  = document.getElementById('install-guide-btn');
+  let html = '';
+  // Android Chrome + deferredPrompt 있음 → 바로 prompt 가능
+  if (deferredPrompt) {
+    html = '<b style="color:#FCD34D">바로 설치 가능합니다.</b><br>아래 <b>지금 설치</b> 버튼을 눌러 주세요.<br><br>' +
+           '<span style="color:#94A3B8;font-size:12px">설치 후 바탕화면에 MJT 아이콘이 생성되며, 앱처럼 풀스크린으로 실행됩니다.</span>';
+    btn.style.display = 'inline-block';
+  } else if (_isIOS) {
+    html = '<b style="color:#FCD34D">iPhone / iPad (Safari)</b><br>' +
+           '① 하단 <b>공유 버튼</b> <span style="display:inline-block;width:22px;height:22px;border:1.5px solid #94A3B8;border-radius:5px;text-align:center;line-height:18px;font-size:14px;color:#94A3B8">↑</span> 을 누릅니다.<br>' +
+           '② 메뉴에서 <b>"홈 화면에 추가"</b> 선택<br>' +
+           '③ 우측 상단 <b>"추가"</b> 탭<br><br>' +
+           '<span style="color:#94A3B8;font-size:12px">Chrome 앱이 아닌 <b>Safari</b>로 접속해야 설치 가능합니다.</span>';
+    btn.style.display = 'none';
+  } else if (_isSamsung) {
+    html = '<b style="color:#FCD34D">삼성 인터넷 브라우저</b><br>' +
+           '① 하단의 <b>메뉴 (≡)</b> 또는 <b>북마크 + 모양</b> 아이콘을 탭<br>' +
+           '② <b>"현재 페이지 추가"</b> → <b>"홈 화면"</b> 선택<br><br>' +
+           '<b style="color:#FCD34D">또는 Chrome 사용 시</b>: 주소창 우측 <b>⋮</b> → <b>"앱 설치"</b> 또는 <b>"홈 화면에 추가"</b><br><br>' +
+           '<span style="color:#94A3B8;font-size:12px">Chrome에서 열면 자동 설치 버튼이 표시됩니다.</span>';
+    btn.style.display = 'none';
+  } else if (_isAndroid) {
+    html = '<b style="color:#FCD34D">Android Chrome</b><br>' +
+           '① 주소창 우측의 <b>⋮ (세로 점 3개)</b> 메뉴 탭<br>' +
+           '② <b>"앱 설치"</b> 또는 <b>"홈 화면에 추가"</b> 선택<br>' +
+           '③ <b>"설치"</b> 확인<br><br>' +
+           '<span style="color:#94A3B8;font-size:12px">버튼이 안 보이면 페이지를 한 번 새로고침 후 다시 시도해 주세요.</span>';
+    btn.style.display = 'none';
+  } else {
+    html = '<b>PC 브라우저</b><br>주소창 우측 <b>설치 아이콘</b> 또는 메뉴 → <b>"앱 설치"</b> 선택';
+    btn.style.display = 'none';
+  }
+  body.innerHTML = html;
+  document.getElementById('install-guide-modal').style.display = 'flex';
+}
+
+async function triggerInstallFromGuide() {
+  closeInstallGuide();
+  await triggerInstall();
+}
+
+function closeInstallGuide(ev) {
+  if (ev && ev.target.id !== 'install-guide-modal') return;
+  document.getElementById('install-guide-modal').style.display = 'none';
+}
+
+// iOS는 beforeinstallprompt가 안 뜨므로 직접 안내 (한 번만)
 if (_isIOS && !_isStandalone && !_dismissed) {
   setTimeout(() => _showInstallBanner('ios'), 1500);
 }
