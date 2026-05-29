@@ -1,0 +1,53 @@
+{
+  "name": "MJT SmartFactory",
+  "short_name": "MJT",
+  "description": "MJT 통합 관리 시스템 — 근태 · 식수 · 외부손님 · 당직",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B1120",
+  "theme_color": "#0F172A",
+  "lang": "ko-KR",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "체크인",
+      "short_name": "체크인",
+      "url": "/checkin",
+      "icons": [{"src": "/static/icons/icon-192.png", "sizes": "192x192"}]
+    },
+    {
+      "name": "외부손님 신청",
+      "short_name": "외부손님",
+      "url": "/guest_request",
+      "icons": [{"src": "/static/icons/icon-192.png", "sizes": "192x192"}]
+    },
+    {
+      "name": "근태 신청",
+      "short_name": "근태",
+      "url": "/attendance_request",
+      "icons": [{"src": "/static/icons/icon-192.png", "sizes": "192x192"}]
+    }
+  ]
+}

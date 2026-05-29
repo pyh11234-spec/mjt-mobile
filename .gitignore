@@ -3,5 +3,6 @@ __pycache__/
 *.pyo
 .env
 *.json
+!static/manifest.json
 .venv/
 venv/

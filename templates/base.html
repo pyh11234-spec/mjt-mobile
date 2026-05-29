@@ -6,7 +6,16 @@
   <meta name="theme-color" content="#0F172A">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MJT">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>MJT SmartFactory</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" type="image/png" sizes="64x64" href="/static/icons/favicon-64.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -234,6 +243,38 @@
       letter-spacing: 0.06em;
     }
     .mjt-footer .gold { color: var(--gold); font-weight: 700; }
+
+    /* PWA 설치 안내 배너 */
+    .pwa-install {
+      display: none;
+      margin: 12px;
+      padding: 14px 16px;
+      background: linear-gradient(135deg, rgba(252,211,77,0.12), rgba(245,158,11,0.06));
+      border: 1px solid var(--gold);
+      border-radius: 12px;
+      font-size: 13px;
+      color: var(--text);
+      position: relative;
+    }
+    .pwa-install.show { display: block; }
+    .pwa-install .h {
+      font-weight: 700; color: var(--gold);
+      margin-bottom: 6px; font-size: 13px;
+    }
+    .pwa-install .s { font-size: 12px; color: var(--text2); line-height: 1.6; }
+    .pwa-install .s b { color: var(--gold); }
+    .pwa-install .close {
+      position: absolute; top: 8px; right: 10px;
+      background: none; border: none; color: var(--text3);
+      font-size: 18px; cursor: pointer; line-height: 1;
+    }
+    .pwa-install .btn-install {
+      margin-top: 8px;
+      background: var(--gold); color: #0B1120;
+      border: none; border-radius: 8px;
+      padding: 8px 14px; font-weight: 700; font-size: 12px;
+      cursor: pointer; font-family: inherit;
+    }
   </style>
 </head>
 <body>
@@ -246,6 +287,15 @@
     <div class="b2">통합 관리 시스템 · Mobile</div>
   </div>
   <div class="mjt-brand-time" id="mjt-time"></div>
+</div>
+
+<!-- PWA 설치 안내 (Android: 자동 / iOS: 안내) -->
+<div class="pwa-install" id="pwa-install">
+  <button class="close" onclick="dismissInstall()" aria-label="닫기">×</button>
+  <div class="h">📱  바탕화면에 MJT 앱으로 설치</div>
+  <div class="s" id="pwa-install-text"></div>
+  <button class="btn-install" id="pwa-install-btn" style="display:none"
+          onclick="triggerInstall()">홈 화면에 추가</button>
 </div>
 
 {% block content %}{% endblock %}
@@ -293,6 +343,7 @@ function doRefresh() {
   btn.disabled = true;
   fetch('/api/refresh').finally(() => location.reload());
 }
+
 // 헤더 시계
 function _tick() {
   const el = document.getElementById('mjt-time');
@@ -301,6 +352,63 @@ function _tick() {
   el.textContent = d.toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'});
 }
 _tick(); setInterval(_tick, 30000);
+
+// ── PWA Service Worker 등록 ────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+  });
+}
+
+// ── PWA 설치 안내 ───────────────────────────────────────
+let deferredPrompt = null;
+const _isStandalone = window.matchMedia('(display-mode: standalone)').matches
+                    || window.navigator.standalone === true;
+const _isIOS  = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const _isAndroid = /Android/.test(navigator.userAgent);
+const _dismissed = localStorage.getItem('mjt_pwa_dismissed') === '1';
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  _showInstallBanner('android');
+});
+
+function _showInstallBanner(mode) {
+  if (_isStandalone || _dismissed) return;
+  const box = document.getElementById('pwa-install');
+  const txt = document.getElementById('pwa-install-text');
+  const btn = document.getElementById('pwa-install-btn');
+  if (!box) return;
+  if (mode === 'android') {
+    txt.innerHTML = '한 번 설치하면 바탕화면 아이콘으로 바로 실행 가능합니다.';
+    btn.style.display = 'inline-block';
+  } else {
+    txt.innerHTML = 'iOS Safari 하단 <b>공유 버튼</b> → <b>"홈 화면에 추가"</b> 를 누르면 앱으로 설치됩니다.';
+    btn.style.display = 'none';
+  }
+  box.classList.add('show');
+}
+
+async function triggerInstall() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  const choice = await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  if (choice.outcome === 'accepted') {
+    document.getElementById('pwa-install').classList.remove('show');
+  }
+}
+
+function dismissInstall() {
+  localStorage.setItem('mjt_pwa_dismissed', '1');
+  document.getElementById('pwa-install').classList.remove('show');
+}
+
+// iOS는 beforeinstallprompt가 안 뜨므로 직접 안내
+if (_isIOS && !_isStandalone && !_dismissed) {
+  setTimeout(() => _showInstallBanner('ios'), 1500);
+}
 </script>
 </body>
 </html>
