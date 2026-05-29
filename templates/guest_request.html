@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+{% set page = 'guest_req' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">외부손님 사전 신청</div>
+    <div class="pg-sub">방문 예정 손님을 미리 등록하세요</div>
+  </div>
+  <span style="font-size:11px;color:var(--text2)">{{ today_ds }}</span>
+</div>
+
+<style>
+.form-card { margin: 12px; padding: 16px; background: var(--card);
+             border: 1px solid var(--border); border-radius: 14px; }
+.form-card .form-lbl {
+  display: block; font-size: 11px; color: var(--text2); margin-bottom: 4px;
+  font-weight: 600; letter-spacing: 0.03em;
+}
+.form-card select,
+.form-card input {
+  width: 100%; padding: 11px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text); font-size: 14px;
+  margin-bottom: 14px; outline: none;
+  transition: border-color 0.15s;
+  font-family: inherit;
+}
+.form-card select:focus,
+.form-card input:focus { border-color: var(--gold); }
+.form-card input[type=number] { -moz-appearance: textfield; }
+.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn-submit {
+  width: 100%; padding: 14px;
+  background: linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%);
+  border: none; border-radius: 10px;
+  color: white; font-size: 15px; font-weight: 700;
+  cursor: pointer; margin-top: 4px;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.btn-submit:active { transform: translateY(1px); }
+.btn-submit:disabled { opacity: 0.5; }
+.notice {
+  background: rgba(252, 211, 77, 0.1);
+  border-left: 3px solid var(--gold);
+  padding: 10px 12px;
+  border-radius: 0 8px 8px 0;
+  font-size: 12px; color: var(--gold);
+  margin: 12px; line-height: 1.5;
+}
+.result {
+  display: none;
+  margin: 12px; padding: 14px;
+  border-radius: 10px; text-align: center;
+  font-size: 14px; font-weight: 700; line-height: 1.5;
+}
+.result.ok  { background: rgba(34, 197, 94, 0.15); color: var(--green);
+              border: 1px solid var(--green); }
+.result.err { background: rgba(239, 68, 68, 0.15); color: var(--red);
+              border: 1px solid var(--red); }
+.help-text { font-size: 11px; color: var(--text3); margin-top: -10px; margin-bottom: 14px; }
+</style>
+
+<div class="notice">
+  사전 등록한 손님은 식당에 자동으로 통보되어 음식 양 준비에 반영됩니다.<br>
+  당일 갑작스러운 방문은 식당 키오스크의 [즉시 식사 등록] 사용
+</div>
+
+<div class="form-card">
+
+  <label class="form-lbl">담당자 (본인 이름)</label>
+  <select id="mgr_id">
+    <option value="">-- 담당자 선택 --</option>
+    {% for e in employees %}
+    <option value="{{ e.사원번호 }}">{{ e.성명 }}  ·  {{ e.부서명 }} ({{ e.사원번호 }})</option>
+    {% endfor %}
+  </select>
+
+  <label class="form-lbl">방문 예정일</label>
+  <input type="date" id="visit_date" value="{{ today_ds }}">
+
+  <label class="form-lbl">손님 회사명</label>
+  <input type="text" id="company" placeholder="예) 한국전자">
+
+  <label class="form-lbl">손님 성명 (대표 1명)</label>
+  <input type="text" id="guest_name" placeholder="예) 홍길동">
+
+  <div class="row-2">
+    <div>
+      <label class="form-lbl">방문 인원 (식사 인원)</label>
+      <input type="number" id="count" min="1" max="50" value="1">
+    </div>
+    <div>
+      <label class="form-lbl">&nbsp;</label>
+      <div class="help-text" style="margin-top:11px">실제 식사 인원으로 입력</div>
+    </div>
+  </div>
+
+  <label class="form-lbl">방문 사유</label>
+  <input type="text" id="reason" placeholder="예) 협력업체 미팅">
+
+  <button class="btn-submit" id="submit_btn" onclick="submitGuest()">등록하기</button>
+</div>
+
+<div class="result" id="result_box"></div>
+
+<script>
+async function submitGuest() {
+  const mgr_id    = document.getElementById('mgr_id').value;
+  const visit_dt  = document.getElementById('visit_date').value;
+  const company   = document.getElementById('company').value.trim();
+  const gname     = document.getElementById('guest_name').value.trim();
+  const cnt       = document.getElementById('count').value || 1;
+  const reason    = document.getElementById('reason').value.trim();
+  const res       = document.getElementById('result_box');
+  const btn       = document.getElementById('submit_btn');
+
+  if (!mgr_id)   { alert('담당자를 선택하세요'); return; }
+  if (!visit_dt) { alert('방문 예정일을 선택하세요'); return; }
+  if (!company)  { alert('손님 회사명을 입력하세요'); return; }
+  if (!gname)    { alert('손님 성명을 입력하세요'); return; }
+
+  btn.disabled = true; btn.textContent = '등록 중...';
+  try {
+    const r = await fetch('/api/guest_request', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        mgr_id, visit_date: visit_dt, company,
+        guest_name: gname, count: parseInt(cnt), reason
+      })
+    });
+    const data = await r.json();
+    res.style.display = 'block';
+    if (data.ok) {
+      res.className = 'result ok';
+      res.textContent = '✅  ' + data.msg;
+      document.getElementById('company').value = '';
+      document.getElementById('guest_name').value = '';
+      document.getElementById('reason').value = '';
+      document.getElementById('count').value = '1';
+    } else {
+      res.className = 'result err';
+      res.textContent = '⚠  ' + (data.error || '등록 실패');
+    }
+  } catch (e) {
+    res.style.display = 'block';
+    res.className = 'result err';
+    res.textContent = '⚠  네트워크 오류';
+  }
+  btn.disabled = false; btn.textContent = '등록하기';
+  res.scrollIntoView({behavior: 'smooth'});
+}
+</script>
+
+{% endblock %}

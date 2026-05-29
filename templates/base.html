@@ -6,47 +6,118 @@
   <meta name="theme-color" content="#0F172A">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>MJT 현황</title>
+  <title>MJT SmartFactory</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Noto+Sans+KR:wght@400;500;700;800&display=swap">
   <style>
     :root {
-      --bg:      #0F172A;
-      --card:    #1E293B;
-      --border:  #334155;
-      --text:    #F1F5F9;
-      --text2:   #94A3B8;
-      --accent:  #3B82F6;
-      --green:   #22C55E;
-      --amber:   #F59E0B;
-      --red:     #EF4444;
-      --orange:  #F97316;
-      --purple:  #A855F7;
+      --bg:       #0B1120;
+      --bg2:      #0F172A;
+      --card:     #1E293B;
+      --card2:    #243447;
+      --border:   #334155;
+      --border2:  #475569;
+      --text:     #F1F5F9;
+      --text2:    #94A3B8;
+      --text3:    #64748B;
+      --accent:   #2563EB;
+      --accent2:  #1D4ED8;
+      --gold:     #FCD34D;
+      --gold2:    #F59E0B;
+      --green:    #22C55E;
+      --green2:   #16A34A;
+      --amber:    #F59E0B;
+      --red:      #EF4444;
+      --red2:     #DC2626;
+      --orange:   #F97316;
+      --purple:   #A855F7;
+      --teal:     #14B8A6;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: 'Apple SD Gothic Neo', '맑은 고딕', sans-serif;
-      padding-bottom: 72px;
+      font-family: 'Noto Sans KR', 'Inter', 'Apple SD Gothic Neo', '맑은 고딕', sans-serif;
+      padding-bottom: 96px;
       min-height: 100vh;
+      letter-spacing: -0.01em;
     }
     a { color: inherit; text-decoration: none; }
 
-    /* 카드 */
+    /* ── MJT 브랜드 헤더 ─────────────────────── */
+    .mjt-brand {
+      background: linear-gradient(135deg, #0B1120 0%, #1E293B 100%);
+      border-bottom: 2px solid var(--gold);
+      padding: 10px 16px 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: sticky; top: 0; z-index: 200;
+    }
+    .mjt-logo {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--gold) 0%, var(--gold2) 100%);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 13px; color: #0B1120;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 8px rgba(252, 211, 77, 0.25);
+    }
+    .mjt-brand-text {
+      flex: 1; line-height: 1.2;
+    }
+    .mjt-brand-text .b1 {
+      font-weight: 800; font-size: 13px; color: var(--gold);
+      letter-spacing: 0.04em;
+    }
+    .mjt-brand-text .b2 {
+      font-size: 10px; color: var(--text3);
+      letter-spacing: 0.03em;
+      margin-top: 1px;
+    }
+    .mjt-brand-time {
+      font-size: 11px; color: var(--text2);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── 페이지 헤더 ─────────────────────── */
+    .pg-hd {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px 10px;
+      position: sticky; top: 50px; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .pg-hd .pg-title {
+      font-weight: 700; font-size: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .pg-hd .pg-title::before {
+      content: ''; width: 3px; height: 16px;
+      background: var(--gold); border-radius: 2px;
+    }
+    .pg-hd .pg-sub { font-size: 11px; color: var(--text2); margin-top: 1px; }
+
+    /* ── 카드 ─────────────────────── */
     .c-card {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 14px;
       overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
     }
     .c-card-hd {
       padding: 12px 16px;
       border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      display: flex; align-items: center; justify-content: space-between;
+      background: linear-gradient(180deg, var(--card2) 0%, var(--card) 100%);
     }
-    .c-card-hd .title { font-weight: 700; font-size: 14px; }
+    .c-card-hd .title {
+      font-weight: 700; font-size: 13px;
+      display: flex; align-items: center; gap: 6px;
+    }
     .c-card-hd .badge-cnt {
       font-size: 13px; font-weight: 700;
       padding: 2px 10px; border-radius: 20px;
@@ -57,87 +128,82 @@
       padding: 10px 16px;
       font-size: 13px;
       border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 10px;
+      display: flex; align-items: center; gap: 10px;
     }
     .c-row:last-child { border-bottom: none; }
 
     /* KPI */
-    .kpi-val { font-size: 26px; font-weight: 700; line-height: 1.1; }
-    .kpi-lbl { font-size: 11px; color: var(--text2); margin-top: 3px; }
+    .kpi-val { font-size: 26px; font-weight: 800; line-height: 1.1;
+               font-feature-settings: 'tnum'; }
+    .kpi-lbl { font-size: 11px; color: var(--text2); margin-top: 3px;
+               letter-spacing: 0.04em; }
 
     /* 상태 점 */
-    .dot {
-      width: 9px; height: 9px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .dot-max64  { background: #7F1D1D; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .dot-max64  { background: #7F1D1D; box-shadow: 0 0 6px #DC2626; }
     .dot-danger { background: var(--red); }
     .dot-warn   { background: var(--amber); }
     .dot-safe   { background: var(--green); }
 
-    /* 하단 네비 */
+    /* ── 하단 네비 ─────────────────────── */
     .nav-btm {
       position: fixed; bottom: 0; left: 0; right: 0;
       background: var(--card);
-      border-top: 1px solid var(--border);
-      display: flex;
-      z-index: 1000;
+      border-top: 2px solid var(--gold);
+      display: flex; z-index: 1000;
       padding-bottom: env(safe-area-inset-bottom);
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      box-shadow: 0 -2px 12px rgba(0,0,0,0.3);
     }
     .nav-btm a {
-      flex: 1; text-align: center;
-      padding: 10px 0 8px;
-      color: var(--text2);
+      flex: 1; min-width: 60px; text-align: center;
+      padding: 8px 0 6px;
+      color: var(--text3);
       font-size: 10px;
-      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
       transition: color 0.15s;
+      border-top: 2px solid transparent;
+      margin-top: -2px;
     }
-    .nav-btm a.active { color: var(--accent); }
-    .nav-btm .ico { font-size: 22px; }
-
-    /* 페이지 헤더 */
-    .pg-hd {
-      background: var(--card);
-      border-bottom: 1px solid var(--border);
-      padding: 14px 16px 12px;
-      position: sticky; top: 0; z-index: 100;
-      display: flex; align-items: center; justify-content: space-between;
+    .nav-btm a.active {
+      color: var(--gold);
+      border-top-color: var(--gold);
     }
-    .pg-hd .pg-title { font-weight: 700; font-size: 16px; }
-    .pg-hd .pg-sub   { font-size: 12px; color: var(--text2); margin-top: 1px; }
+    .nav-btm .ico { font-size: 20px; }
 
     /* 새로고침 버튼 */
     .btn-ref {
       background: none;
-      border: 1px solid var(--border);
+      border: 1px solid var(--border2);
       color: var(--text2);
       border-radius: 8px;
       padding: 5px 12px;
       font-size: 12px;
       cursor: pointer;
+      transition: all 0.15s;
     }
-    .btn-ref:active { background: var(--border); }
+    .btn-ref:active, .btn-ref:hover {
+      background: var(--border); color: var(--gold);
+    }
 
     /* 텍스트 */
-    .t2   { color: var(--text2); }
+    .t2 { color: var(--text2); }
+    .gold { color: var(--gold); }
     .fs11 { font-size: 11px; }
     .fs12 { font-size: 12px; }
     .fs13 { font-size: 13px; }
 
     /* 빈 상태 */
-    .empty { text-align: center; padding: 20px; color: var(--text2); font-size: 13px; }
+    .empty { text-align: center; padding: 24px; color: var(--text2); font-size: 13px; }
 
     /* 스크롤 영역 */
     .scroll-list { max-height: 260px; overflow-y: auto; }
 
     /* 섹션 레이블 */
     .sec-lbl {
-      font-size: 11px; font-weight: 600;
-      color: var(--text2);
-      letter-spacing: 0.06em;
+      font-size: 10px; font-weight: 700;
+      color: var(--text3);
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       margin-bottom: 8px;
     }
@@ -148,45 +214,75 @@
       padding: 5px 14px;
       border-radius: 20px;
       font-size: 12px;
-      border: 1px solid var(--border);
+      border: 1px solid var(--border2);
       color: var(--text2);
+      transition: all 0.15s;
     }
     .filter-tab.active {
       background: var(--accent);
       border-color: var(--accent);
       color: white;
+      font-weight: 700;
     }
+
+    /* 페이지 푸터 (브랜딩) */
+    .mjt-footer {
+      text-align: center;
+      padding: 16px 12px 4px;
+      font-size: 9.5px;
+      color: var(--text3);
+      letter-spacing: 0.06em;
+    }
+    .mjt-footer .gold { color: var(--gold); font-weight: 700; }
   </style>
 </head>
 <body>
 
+<!-- MJT 브랜드 헤더 (모든 페이지 공통) -->
+<div class="mjt-brand">
+  <div class="mjt-logo">MJT</div>
+  <div class="mjt-brand-text">
+    <div class="b1">MJT SmartFactory</div>
+    <div class="b2">통합 관리 시스템 · Mobile</div>
+  </div>
+  <div class="mjt-brand-time" id="mjt-time"></div>
+</div>
+
 {% block content %}{% endblock %}
 
+<!-- MJT 푸터 -->
+<div class="mjt-footer">
+  © MJT SmartFactory  ·  Powered by <span class="gold">P.Y.H</span>
+</div>
+
 <!-- 하단 네비게이션 -->
-<nav class="nav-btm" style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
-  <a href="/"             class="{% if page=='home'     %}active{% endif %}" style="min-width:56px">
+<nav class="nav-btm">
+  <a href="/"             class="{% if page=='home'     %}active{% endif %}">
     <span class="ico">🏠</span>대시보드
   </a>
-  <a href="/checkin"      class="{% if page=='checkin'  %}active{% endif %}" style="min-width:56px">
+  <a href="/checkin"      class="{% if page=='checkin'  %}active{% endif %}">
     <span class="ico">📷</span>체크인
   </a>
-  <a href="/overtime"     class="{% if page=='overtime' %}active{% endif %}" style="min-width:56px">
+  <a href="/overtime"     class="{% if page=='overtime' %}active{% endif %}">
     <span class="ico">⏰</span>월별<br>연장근로
   </a>
-  <a href="/ot_schedule"  class="{% if page=='schedule' %}active{% endif %}" style="min-width:56px">
-    <span class="ico">📅</span>연장근로<br>실시간현황
+  <a href="/ot_schedule"  class="{% if page=='schedule' %}active{% endif %}">
+    <span class="ico">📅</span>연장근로<br>실시간
   </a>
-  <a href="/meal"         class="{% if page=='meal'     %}active{% endif %}" style="min-width:56px">
+  <a href="/meal"         class="{% if page=='meal'     %}active{% endif %}">
     <span class="ico">🍱</span>식수현황
   </a>
-  <a href="/calendar"     class="{% if page=='calendar' %}active{% endif %}" style="min-width:56px">
+  <a href="/calendar"     class="{% if page=='calendar' %}active{% endif %}">
     <span class="ico">📆</span>월중행사
   </a>
-  <a href="/menu"         class="{% if page=='menu'     %}active{% endif %}" style="min-width:56px">
+  <a href="/menu"         class="{% if page=='menu'     %}active{% endif %}">
     <span class="ico">📋</span>메뉴등록
   </a>
-  <a href="/attendance_request" class="{% if page=='att_req' %}active{% endif %}" style="min-width:56px">
+  <a href="/attendance_request" class="{% if page=='att_req' %}active{% endif %}">
     <span class="ico">✍️</span>근태신청
+  </a>
+  <a href="/guest_request" class="{% if page=='guest_req' %}active{% endif %}">
+    <span class="ico">👥</span>외부손님
   </a>
 </nav>
 
@@ -197,6 +293,14 @@ function doRefresh() {
   btn.disabled = true;
   fetch('/api/refresh').finally(() => location.reload());
 }
+// 헤더 시계
+function _tick() {
+  const el = document.getElementById('mjt-time');
+  if (!el) return;
+  const d = new Date();
+  el.textContent = d.toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'});
+}
+_tick(); setInterval(_tick, 30000);
 </script>
 </body>
 </html>

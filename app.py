@@ -2,7 +2,7 @@
 MJT 모바일 현황 대시보드 — Flask
 Google Sheets 데이터를 모바일 브라우저로 조회 + 오늘 메뉴 등록
 """
-import os, json, base64, time, threading, secrets, io
+import os, json, base64, time, threading, secrets, io, re
 from datetime import datetime, date, timedelta, timezone
 from collections import defaultdict
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session, send_file
@@ -10,6 +10,24 @@ from flask import Flask, render_template, jsonify, request, redirect, url_for, s
 import gspread
 from gspread.exceptions import WorksheetNotFound
 from google.oauth2.service_account import Credentials
+
+
+def _norm_date(s) -> str:
+    """Google Sheets 다양한 날짜 포맷 → 'YYYY-MM-DD' 정규화.
+    시리얼 숫자(46169), '5/29/2026', '2026. 5. 29.' 등 모두 처리."""
+    if isinstance(s, (int, float)) and s > 1000:
+        try:
+            return (date(1899, 12, 30) + timedelta(days=int(s))).strftime('%Y-%m-%d')
+        except Exception:
+            return str(s)
+    s = str(s).strip()
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+        return s
+    m = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', s)
+    if m: return f'{m.group(3)}-{int(m.group(1)):02d}-{int(m.group(2)):02d}'
+    m = re.match(r'^(\d{4})[./]\s*(\d{1,2})[./]\s*(\d{1,2})', s)
+    if m: return f'{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}'
+    return s
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
@@ -77,6 +95,7 @@ def _open_sh():
 # ── 캐시 ────────────────────────────────────────────────────────
 _cache: dict = {}
 _lock = threading.Lock()
+_guest_cache: list = []   # 세션 중 등록된 외부손님 (Sheets 포맷 불일치 대응)
 
 def _cached(key, fn, ttl=CACHE_TTL):
     with _lock:
@@ -173,11 +192,38 @@ def get_meal_today(ds: str) -> dict:
                 return [r for r in rows if len(r) > date_col and r[date_col].strip() == ds]
             except Exception:
                 return []
+        def _get_guest():
+            """외부손님 — 날짜 시리얼/문자열 모두 정규화 후 비교 + 세션 캐시 병합."""
+            try:
+                raw = sh.worksheet('외부손님').get_all_values(
+                    value_render_option='UNFORMATTED_VALUE')[1:]
+            except TypeError:
+                raw = sh.worksheet('외부손님').get_all_values()[1:]
+            except Exception:
+                raw = []
+            matched, seen = [], set()
+            for r in raw:
+                if not r: continue
+                d0 = _norm_date(r[0]) if len(r) > 0 else ''
+                d1 = _norm_date(r[1]) if len(r) > 1 else ''
+                if d0 == ds or d1 == ds:
+                    norm = list(r)
+                    if len(norm) > 0: norm[0] = d0
+                    if len(norm) > 1: norm[1] = d1
+                    matched.append(norm)
+                    if len(r) > 2: seen.add((d1, str(r[2]).strip()))
+            for r in _guest_cache:
+                if not r: continue
+                d0 = _norm_date(r[0]) if len(r) > 0 else ''
+                d1 = _norm_date(r[1]) if len(r) > 1 else ''
+                if (d0 == ds or d1 == ds) and (d1, str(r[2]).strip()) not in seen:
+                    matched.append(r)
+            return matched
         out['중식신청']   = _get('중식신청')
         out['중식실식수'] = _get('중식실식수')
         out['저녁도시락'] = _get('저녁도시락')
         out['특근식사']   = _get('특근식사')
-        out['외부손님']   = _get('외부손님', date_col=0)
+        out['외부손님']   = _get_guest()
         return out
     return _cached(f'meal_{ds}', _f, ttl=120)  # 2분 캐시
 
@@ -1365,12 +1411,13 @@ def attendance_request():
 
 @app.route('/api/attendance_request', methods=['POST'])
 def api_attendance_request():
-    body    = request.get_json(silent=True) or {}
-    emp_id  = body.get('emp_id', '').strip()
-    ds      = body.get('date', '').strip()
-    att_type= body.get('att_type', '').strip()
-    value   = body.get('value', '')
-    memo    = body.get('memo', '').strip()
+    body     = request.get_json(silent=True) or {}
+    emp_id   = body.get('emp_id', '').strip()
+    ds       = body.get('date', '').strip()
+    att_type = body.get('att_type', '').strip()
+    value    = body.get('value', '')
+    memo     = body.get('memo', '').strip()
+    approver = body.get('approver', '').strip()  # 주 52H/64H 초과 시 승인자 성명
 
     if not emp_id or not ds or not att_type:
         return jsonify({'ok': False, 'error': '필수 항목 누락'})
@@ -1384,6 +1431,52 @@ def api_attendance_request():
     emp  = next((e for e in emps if str(e.get('사원번호', '')).strip() == emp_id), None)
     if not emp:
         return jsonify({'ok': False, 'error': '사원 미등록'})
+
+    # ── 주 52H/64H 경고 (잔업/특근만) ────────────────────────
+    if att_type in ATT_CAT_OT:
+        try:
+            val_f = float(value)
+        except Exception:
+            val_f = 0.0
+        year  = int(ds[:4]); month = int(ds[5:7])
+        day   = int(ds[8:10])
+        fw    = date(year, month, 1).weekday()
+        target_wk = (day + fw - 1) // 7 + 1
+        att_rows = get_att_records(year, month)
+        cur_ot = 0.0; cur_lv_h = 0.0
+        for r in att_rows:
+            if str(r.get('사원번호','')).strip() != emp_id:
+                continue
+            try: d2 = int(str(r.get('일자','')).split('-')[-1])
+            except: continue
+            wk = (d2 + fw - 1) // 7 + 1
+            if wk != target_wk: continue
+            atype2 = str(r.get('근태유형','')).strip()
+            try: v = float(r.get('값', 0) or 0)
+            except: v = 0.0
+            if atype2 in ATT_CAT_OT:    cur_ot   += v
+            elif atype2 in ATT_CAT_LEAVE: cur_lv_h += v * 8
+        new_ot  = cur_ot + val_f
+        avail52 = OT_DANGER_H + cur_lv_h
+        avail64 = OT_MAX64_H  + cur_lv_h
+        if new_ot >= avail64:
+            limit_h = 64; required = True
+        elif new_ot >= avail52:
+            limit_h = 52; required = True
+        else:
+            limit_h = 0;  required = False
+        if required and not approver:
+            return jsonify({
+                'ok': False,
+                'need_approval': True,
+                'limit_h': limit_h,
+                'new_ot': round(new_ot, 1),
+                'avail_h': int(avail64 if limit_h == 64 else avail52),
+                'wk_no': target_wk,
+                'error': f'주 {limit_h}시간 한도 초과 — 상위 관리자 승인이 필요합니다.'
+            })
+        if required and approver:
+            memo = (memo + ' ' if memo else '') + f'[승인:{approver}/{limit_h}H초과]'
 
     try:
         year  = int(ds[:4])
@@ -1401,6 +1494,57 @@ def api_attendance_request():
         with _lock:
             _cache.pop(f'att_{year}_{month}', None)
         return jsonify({'ok': True, 'name': emp.get('성명', '')})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+# ── 외부손님 신청 (모바일) ────────────────────────────────────────
+@app.route('/guest_request')
+def guest_request():
+    ds   = date.today().strftime('%Y-%m-%d')
+    emps = get_employees()
+    return render_template('guest_request.html',
+                           today_ds=ds, employees=emps)
+
+
+@app.route('/api/guest_request', methods=['POST'])
+def api_guest_request():
+    body      = request.get_json(silent=True) or {}
+    mgr_id    = body.get('mgr_id', '').strip()
+    visit_dt  = body.get('visit_date', '').strip()
+    company   = body.get('company', '').strip()
+    gname     = body.get('guest_name', '').strip()
+    reason    = body.get('reason', '').strip()
+    try: cnt  = max(1, int(body.get('count', 1)))
+    except: cnt = 1
+
+    if not mgr_id or not visit_dt or not company or not gname:
+        return jsonify({'ok': False, 'error': '담당자/방문일/회사/손님 성명 필수'})
+    try:
+        datetime.strptime(visit_dt, '%Y-%m-%d')
+    except ValueError:
+        return jsonify({'ok': False, 'error': '방문예정일 형식 오류'})
+
+    emps = get_employees()
+    mgr  = next((e for e in emps if str(e.get('사원번호','')).strip() == mgr_id), None)
+    if not mgr:
+        return jsonify({'ok': False, 'error': f'담당자 미등록: {mgr_id}'})
+
+    now_d = date.today().strftime('%Y-%m-%d')
+    now_t = datetime.now(KST).strftime('%H:%M:%S')
+    row   = [visit_dt, now_d, now_t,
+             mgr_id, mgr.get('성명',''), mgr.get('부서명',''),
+             company, gname, reason, str(cnt)]
+    try:
+        sh = _open_sh()
+        sh.worksheet('외부손님').append_row(row, value_input_option='RAW')
+        _guest_cache.append(row)
+        # 캐시 무효화
+        with _lock:
+            for k in list(_cache.keys()):
+                if k.startswith('meal_'): _cache.pop(k, None)
+        return jsonify({'ok': True,
+                        'msg': f'{gname} ({company}) {cnt}명 등록 완료 — 담당:{mgr.get("성명","")}'})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
 
