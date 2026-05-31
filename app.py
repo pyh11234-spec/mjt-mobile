@@ -248,7 +248,46 @@ ATT_CAT_LEAVE= ['연차','오전반차','오후반차','탄력오전','탄력오
 OT_DANGER_H  = 12   # 주 52H 한도 OT
 OT_MAX64_H   = 24   # 주 64H 한도 OT
 CACHE_TTL    = 300  # 5분 캐시
-KST          = timezone(timedelta(hours=9))
+
+# ── 시간대 (v1.3 — 필리핀 등 다국가 대비) ────────────────────
+# 사용자 시간대 우선순위: 쿠키 → 사번 prefix(M/S=KST, P=PHT) → 환경변수 → KST
+KST = timezone(timedelta(hours=9))   # 한국
+PHT = timezone(timedelta(hours=8))   # 필리핀
+TZ_MAP = {'KST': KST, 'PHT': PHT, 'UTC': timezone(timedelta(hours=0))}
+DEFAULT_TZ = os.environ.get('DEFAULT_TZ', 'KST')
+
+
+def user_tz():
+    """현재 요청의 시간대 결정.
+    1) 쿠키 'tz' 값 (사용자가 명시 선택)
+    2) 사번 prefix: P로 시작 → 필리핀, 그 외 → KST
+    3) 환경변수 DEFAULT_TZ
+    """
+    try:
+        from flask import session, request
+        # 1) 쿠키 우선
+        tz_name = request.cookies.get('tz')
+        if tz_name and tz_name in TZ_MAP:
+            return TZ_MAP[tz_name]
+        # 2) 사번 prefix
+        emp_id = session.get('emp_id', '') if session else ''
+        if emp_id.upper().startswith('P'):
+            return PHT
+    except Exception:
+        pass
+    return TZ_MAP.get(DEFAULT_TZ, KST)
+
+
+def fmt_local(dt, fmt='%Y-%m-%d %H:%M'):
+    """DB의 UTC TIMESTAMPTZ → 사용자 현지 시간 표시."""
+    if dt is None: return ''
+    if isinstance(dt, str): return dt
+    try:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone(timedelta(hours=0)))
+        return dt.astimezone(user_tz()).strftime(fmt)
+    except Exception:
+        return str(dt)
 
 _OP_DEFAULTS = {
     '중식신청마감': '08:10',
@@ -1876,10 +1915,28 @@ def improvement_stats():
         return render_template('error.html', error=f'통계: {e}')
 
 
+@app.route('/set_tz/<tz>')
+def set_tz(tz):
+    """사용자 시간대 변경 (쿠키 1년)."""
+    if tz not in TZ_MAP:
+        return jsonify({'ok': False, 'error': 'unknown tz'}), 400
+    nxt = request.args.get('next') or '/'
+    resp = redirect(nxt)
+    resp.set_cookie('tz', tz, max_age=365*24*3600, samesite='Lax')
+    return resp
+
+
 @app.context_processor
 def _inject_version():
-    """모든 템플릿에 버전 변수 주입."""
-    return {'mjt_version': '1.2.2', 'mjt_version_date': '2026-05-31'}
+    """모든 템플릿에 버전 + 시간대 정보 주입."""
+    tz = user_tz()
+    tz_name = ('PHT' if tz == PHT else 'KST')
+    return {
+        'mjt_version': '1.3.0',
+        'mjt_version_date': '2026-05-31',
+        'user_tz': tz_name,
+        'fmt_local': fmt_local,
+    }
 
 
 if __name__ == '__main__':

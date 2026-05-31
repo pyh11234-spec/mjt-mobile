@@ -312,7 +312,10 @@
     </div>
   </div>
   <button class="mjt-install-chip" id="mjt-install-chip" onclick="onInstallChip()">📱 앱설치</button>
-  <div class="mjt-brand-time" id="mjt-time" style="margin-left:8px"></div>
+  <a href="/set_tz/{% if user_tz == 'KST' %}PHT{% else %}KST{% endif %}?next={{ request.path }}"
+     style="margin-left:6px;font-size:9px;color:#FCD34D;text-decoration:none;border:1px solid #FCD34D;border-radius:6px;padding:3px 6px"
+     title="시간대 변경">{{ user_tz }}</a>
+  <div class="mjt-brand-time" id="mjt-time" style="margin-left:6px"></div>
 </div>
 
 <!-- PWA 설치 안내 (Android: 자동 / iOS: 안내) -->
