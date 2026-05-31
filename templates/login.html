@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0F172A">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>MJT SmartFactory 로그인</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;800&display=swap">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: linear-gradient(135deg, #0B1120 0%, #1E293B 100%);
+      color: #F1F5F9;
+      font-family: 'Noto Sans KR', '맑은 고딕', sans-serif;
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .brand {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .logo {
+      width: 64px; height: 64px;
+      margin: 0 auto 14px;
+      background: linear-gradient(135deg, #FCD34D 0%, #F59E0B 100%);
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 22px; color: #0B1120;
+      box-shadow: 0 4px 16px rgba(252,211,77,0.3);
+    }
+    .brand h1 {
+      font-size: 22px; font-weight: 800; color: #FCD34D;
+      letter-spacing: 0.04em;
+    }
+    .brand .sub {
+      font-size: 11px; color: #64748B;
+      margin-top: 4px; letter-spacing: 0.06em;
+    }
+    .card {
+      width: 100%; max-width: 360px;
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(10px);
+      border: 1px solid #334155;
+      border-top: 2px solid #FCD34D;
+      border-radius: 16px;
+      padding: 28px 24px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .card h2 {
+      font-size: 15px; font-weight: 700; color: #F1F5F9;
+      margin-bottom: 6px;
+    }
+    .card p.help {
+      font-size: 11px; color: #64748B;
+      margin-bottom: 18px;
+    }
+    label {
+      display: block;
+      font-size: 11px; color: #94A3B8;
+      font-weight: 600;
+      margin-bottom: 5px;
+      letter-spacing: 0.03em;
+    }
+    input {
+      width: 100%; padding: 12px 14px;
+      background: #0B1120;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #F1F5F9;
+      font-size: 15px;
+      margin-bottom: 14px;
+      outline: none;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: #FCD34D; }
+    input[name="emp_id"] {
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    button {
+      width: 100%; padding: 13px;
+      background: linear-gradient(135deg, #FCD34D 0%, #F59E0B 100%);
+      color: #0B1120;
+      border: none; border-radius: 8px;
+      font-size: 15px; font-weight: 800;
+      cursor: pointer;
+      font-family: inherit;
+      margin-top: 4px;
+      transition: transform 0.1s;
+    }
+    button:active { transform: translateY(1px); }
+    .err {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid #EF4444;
+      color: #FCA5A5;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+    .footer {
+      margin-top: 28px;
+      text-align: center;
+      font-size: 10px;
+      color: #475569;
+      letter-spacing: 0.06em;
+    }
+    .footer .gold { color: #FCD34D; font-weight: 700; }
+    .footer .v { color: #64748B; }
+  </style>
+</head>
+<body>
+
+<div class="brand">
+  <div class="logo">MJT</div>
+  <h1>MJT SmartFactory</h1>
+  <div class="sub">통합 관리 시스템 · Mobile</div>
+</div>
+
+<div class="card">
+  <h2>로그인</h2>
+  <p class="help">사번과 회사 공통 코드를 입력하세요. (30일간 자동 유지)</p>
+
+  {% if err == 'wrong_code' %}
+  <div class="err">⚠ 회사 코드가 일치하지 않습니다.</div>
+  {% elif err == 'not_emp' %}
+  <div class="err">⚠ 등록되지 않은 사번이거나 사용 정지된 사번입니다.<br>
+       (퇴사·휴직 시 자동 차단됩니다)</div>
+  {% elif err == 'blocked' %}
+  <div class="err">⚠ 5회 연속 실패로 30분간 차단되었습니다.<br>
+       잠시 후 다시 시도해 주세요.</div>
+  {% elif err == 'expired' %}
+  <div class="err">⚠ 세션이 만료되었거나 계정이 변경되었습니다.<br>
+       다시 로그인해 주세요.</div>
+  {% endif %}
+
+  <form method="post">
+    <input type="hidden" name="next" value="{{ next or '/' }}">
+
+    <label>사번 (예: M008, S015)</label>
+    <input name="emp_id" value="{{ emp_id or '' }}"
+           required maxlength="20" autofocus
+           autocomplete="username" inputmode="text">
+
+    <label>회사 공통 코드</label>
+    <input name="code" type="password" required
+           autocomplete="current-password">
+
+    <button type="submit">로그인 →</button>
+  </form>
+</div>
+
+<div class="footer">
+  © MJT SmartFactory  ·  Powered by <span class="gold">P.Y.H</span><br>
+  <span class="v">v{{ '1.2.2' }}</span>
+</div>
+
+</body>
+</html>

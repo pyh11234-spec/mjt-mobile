@@ -2,7 +2,7 @@
 MJT 모바일 현황 대시보드 — Flask
 Google Sheets 데이터를 모바일 브라우저로 조회 + 오늘 메뉴 등록
 """
-import os, json, base64, time, threading, secrets, io, re
+import os, json, base64, time, threading, secrets, io, re, functools
 from datetime import datetime, date, timedelta, timezone
 from collections import defaultdict
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session, send_file
@@ -31,9 +31,195 @@ def _norm_date(s) -> str:
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
+app.permanent_session_lifetime = timedelta(days=30)   # 30일 쿠키 유지
 
 # 식당 메뉴 등록 비밀번호
 MENU_PW = os.environ.get('MENU_PW', '3838')
+
+# ── 모바일 접속 인증 (v1.2.2 추가) ────────────────────────────
+# 회사 공통 코드 (분기마다 갱신 권장). Render Environment 에 등록.
+MOBILE_AUTH_CODE = os.environ.get('MOBILE_AUTH_CODE', 'mj3838')
+
+# IP 기반 로그인 시도 차단 (5회 실패 → 30분)
+_login_attempts: dict = {}   # ip → [timestamps]
+_login_lock = threading.Lock()
+
+# 인증 면제 경로 (로그인/정적 자산 등)
+_AUTH_EXEMPT_PREFIX = ('/login', '/logout', '/static', '/api/health',
+                       '/favicon.ico')
+
+
+def _ip():
+    return request.headers.get('X-Forwarded-For',
+                                request.remote_addr or 'unknown').split(',')[0].strip()
+
+
+def _is_blocked(ip):
+    with _login_lock:
+        e = _login_attempts.get(ip)
+        if not e: return False
+        recent = [t for t in e if time.time() - t < 1800]
+        _login_attempts[ip] = recent
+        return len(recent) >= 5
+
+
+def _record_failure(ip):
+    with _login_lock:
+        e = _login_attempts.setdefault(ip, [])
+        e.append(time.time())
+        _login_attempts[ip] = [t for t in e if time.time() - t < 1800]
+
+
+def _clear_failure(ip):
+    with _login_lock:
+        _login_attempts.pop(ip, None)
+
+
+def _verify_emp_active(emp_id: str):
+    """사번이 employees.active=TRUE 여야 통과. 퇴사자 자동 차단."""
+    if not emp_id:
+        return None
+    emp_id = emp_id.strip().upper()
+    # Supabase 우선
+    try:
+        import db_pg
+        if db_pg.is_available():
+            r = db_pg.query_one(
+                "SELECT emp_id, name, dept, factory, active FROM employees "
+                "WHERE UPPER(emp_id) = %s LIMIT 1", (emp_id,))
+            if r and r.get('active'):
+                return {'emp_id': r['emp_id'], 'name': r['name'],
+                        'dept': r['dept'], 'factory': r['factory']}
+            return None
+    except Exception:
+        pass
+    # Fallback: Google Sheets
+    try:
+        for e in get_employees():
+            eid = str(e.get('사원번호','')).strip().upper()
+            if eid == emp_id and str(e.get('사용여부','Y')).upper() == 'Y':
+                return {'emp_id': eid,
+                        'name': e.get('성명',''),
+                        'dept': e.get('부서명',''),
+                        'factory': 'MJ 1공장' if eid.startswith('M') else 'SCS 2공장'}
+    except Exception:
+        pass
+    return None
+
+
+def _log_access(emp_id, ip, path, success=True):
+    """접속 로그 (best effort — 실패해도 진행)."""
+    try:
+        import db_pg
+        if db_pg.is_available():
+            with db_pg.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO access_logs (emp_id, ip, path, user_agent, success) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (emp_id, ip, path,
+                     request.headers.get('User-Agent', '')[:200], success))
+    except Exception:
+        pass
+
+
+def require_auth(f):
+    """모든 페이지 보호 데코레이터. 매 진입마다 active 재검증."""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        emp_id = session.get('emp_id')
+        if not emp_id:
+            return redirect(url_for('login', next=request.path))
+        # 매번 active 검증 (퇴사 즉시 차단)
+        emp = _verify_emp_active(emp_id)
+        if not emp:
+            session.clear()
+            return redirect(url_for('login', err='expired'))
+        # 사원 정보 session에 최신화
+        session['emp_name'] = emp['name']
+        session['factory'] = emp.get('factory', '')
+        return f(*args, **kwargs)
+    return wrapper
+
+
+@app.before_request
+def _auth_check():
+    """모든 요청 전에 인증 확인. 면제 경로는 통과."""
+    path = request.path
+    if any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIX):
+        return None
+    emp_id = session.get('emp_id')
+    if not emp_id:
+        # API 호출은 401 JSON, 페이지는 redirect
+        if path.startswith('/api/'):
+            return jsonify({'ok': False, 'error': '인증 필요'}), 401
+        return redirect(url_for('login', next=path))
+    # active 재검증
+    emp = _verify_emp_active(emp_id)
+    if not emp:
+        session.clear()
+        if path.startswith('/api/'):
+            return jsonify({'ok': False, 'error': '만료된 계정'}), 401
+        return redirect(url_for('login', err='expired'))
+    session['emp_name'] = emp['name']
+    session['factory'] = emp.get('factory', '')
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'GET':
+        nxt = request.args.get('next', '/')
+        err = request.args.get('err')
+        # 이미 로그인된 상태면 다음 페이지로
+        if session.get('emp_id') and not err:
+            return redirect(nxt)
+        return render_template('login.html', err=err, next=nxt)
+
+    ip = _ip()
+    if _is_blocked(ip):
+        return render_template('login.html', err='blocked', next='/')
+
+    emp_id = request.form.get('emp_id', '').strip().upper()
+    code   = request.form.get('code', '').strip()
+    nxt    = request.form.get('next', '/') or '/'
+
+    # 회사 코드 검증
+    if not MOBILE_AUTH_CODE or code != MOBILE_AUTH_CODE:
+        _record_failure(ip)
+        _log_access(emp_id or '?', ip, '/login', success=False)
+        return render_template('login.html', err='wrong_code',
+                               next=nxt, emp_id=emp_id)
+
+    # 사번 + active 검증
+    emp = _verify_emp_active(emp_id)
+    if not emp:
+        _record_failure(ip)
+        _log_access(emp_id, ip, '/login', success=False)
+        return render_template('login.html', err='not_emp',
+                               next=nxt, emp_id=emp_id)
+
+    # 통과 → 세션 발급
+    _clear_failure(ip)
+    session.permanent = True
+    session['emp_id']   = emp['emp_id']
+    session['emp_name'] = emp['name']
+    session['factory']  = emp.get('factory', '')
+    _log_access(emp['emp_id'], ip, '/login', success=True)
+    return redirect(nxt)
+
+
+@app.route('/logout')
+def logout():
+    emp_id = session.get('emp_id')
+    session.clear()
+    if emp_id:
+        _log_access(emp_id, _ip(), '/logout', success=True)
+    return redirect(url_for('login'))
+
+
+@app.route('/api/health')
+def api_health():
+    """헬스체크 (UptimeRobot 용 — 인증 면제)."""
+    return jsonify({'ok': True, 'ts': datetime.now().isoformat()})
 
 # ── 결재 설정 ────────────────────────────────────────────────────
 # render.com 환경변수에 APPROVE_GRP_MJ_PW / APPROVE_CEO_MJ_PW /
@@ -1693,7 +1879,7 @@ def improvement_stats():
 @app.context_processor
 def _inject_version():
     """모든 템플릿에 버전 변수 주입."""
-    return {'mjt_version': '1.2.0', 'mjt_version_date': '2026-05-29'}
+    return {'mjt_version': '1.2.2', 'mjt_version_date': '2026-05-31'}
 
 
 if __name__ == '__main__':

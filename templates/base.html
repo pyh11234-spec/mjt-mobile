@@ -302,7 +302,14 @@
   <div class="mjt-logo">MJT</div>
   <div class="mjt-brand-text">
     <div class="b1">MJT SmartFactory</div>
-    <div class="b2">통합 관리 시스템 · Mobile</div>
+    <div class="b2">
+      {% if session.emp_id %}
+        {{ session.emp_name }} ({{ session.emp_id }})
+        · <a href="/logout" style="color:#94A3B8;text-decoration:underline">로그아웃</a>
+      {% else %}
+        통합 관리 시스템 · Mobile
+      {% endif %}
+    </div>
   </div>
   <button class="mjt-install-chip" id="mjt-install-chip" onclick="onInstallChip()">📱 앱설치</button>
   <div class="mjt-brand-time" id="mjt-time" style="margin-left:8px"></div>
