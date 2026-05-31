@@ -64,24 +64,17 @@
     {% endif %}
   </div>
 
-  <!-- 제안자 TOP -->
-  {% if top and not kw %}
-  <div class="sec-lbl">제안자 TOP 10 (5년)</div>
-  <div class="c-card mb-3">
-    {% for i in range(top|length) %}
-      {% set t = top[i] %}
-      {% set max_c = top[0].c %}
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border)">
-        <span style="width:24px;color:var(--gold);font-weight:700">{{ i + 1 }}</span>
-        <span style="width:90px;font-weight:600">{{ t.proposer_name }}</span>
-        <div style="flex:1;background:var(--bg2);height:14px;border-radius:3px;overflow:hidden">
-          <div style="width:{{ (t.c / max_c * 100)|int }}%;height:100%;background:linear-gradient(90deg,#FCD34D,#F59E0B)"></div>
-        </div>
-        <span style="width:36px;text-align:right;font-weight:700">{{ t.c }}</span>
+  <!-- 통계 보기 (별도 메뉴) -->
+  <a href="/improvement/stats" style="display:block;text-decoration:none;margin-bottom:12px">
+    <div class="c-card" style="padding:14px 16px;display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,rgba(252,211,77,0.08),rgba(245,158,11,0.04));border:1px solid var(--gold)">
+      <span style="font-size:22px">📊</span>
+      <div style="flex:1">
+        <div style="font-weight:700;color:var(--gold)">연도/분기별 통계 보기</div>
+        <div style="font-size:11px;color:var(--text2)">제안자 통계는 본인 선택해서 확인 (퇴사자 보호)</div>
       </div>
-    {% endfor %}
-  </div>
-  {% endif %}
+      <span style="color:var(--gold);font-size:20px">›</span>
+    </div>
+  </a>
 
   <div class="t2 fs11 text-end mb-3">마지막 갱신: {{ updated }}  ·  v{{ mjt_version }}</div>
 </div>

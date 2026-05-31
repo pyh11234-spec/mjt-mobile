@@ -1645,6 +1645,51 @@ def improvement_dashboard():
         return render_template('error.html', error=f'개선제안 대시보드: {e}')
 
 
+@app.route('/improvement/stats')
+def improvement_stats():
+    """개선제안 통계 — 연도/분기별 선택해서 보기. 퇴사자 보호 위해 본인 클릭 시만 노출."""
+    if not db_pg.is_available():
+        return render_template('error.html',
+            error='Supabase 환경변수(SUPABASE_DB_URL) 미설정.')
+    try:
+        year = request.args.get('year', type=int)
+        quarter = request.args.get('quarter', type=int)
+
+        # 연도 + 분기별 집계
+        period_stats = db_pg.query("""
+            SELECT year, quarter,
+                   COUNT(*) AS total,
+                   COUNT(CASE WHEN grade IN ('S+','S','A') THEN 1 END) AS high_grade,
+                   SUM(COALESCE(reward_points, 0)) AS reward_sum
+            FROM imp_suggestions
+            WHERE year IS NOT NULL
+            GROUP BY year, quarter
+            ORDER BY year DESC, quarter DESC
+        """)
+        # 선택한 기간의 제안자별 (선택 시에만 표시)
+        proposer_stats = []
+        if year:
+            sql = ("SELECT proposer_name, COUNT(*) AS total, "
+                   "SUM(COALESCE(reward_points, 0)) AS reward_sum, "
+                   "STRING_AGG(DISTINCT grade, ',' ORDER BY grade) AS grades "
+                   "FROM imp_suggestions WHERE year = %s "
+                   "AND proposer_name IS NOT NULL")
+            params = [year]
+            if quarter:
+                sql += " AND quarter = %s"; params.append(quarter)
+            sql += " GROUP BY proposer_name ORDER BY total DESC"
+            proposer_stats = db_pg.query(sql, tuple(params))
+
+        years = sorted({r['year'] for r in period_stats}, reverse=True)
+        return render_template('improvement_stats.html',
+                               period_stats=period_stats,
+                               proposer_stats=proposer_stats,
+                               years=years, sel_year=year, sel_quarter=quarter,
+                               updated=datetime.now().strftime('%H:%M'))
+    except Exception as e:
+        return render_template('error.html', error=f'통계: {e}')
+
+
 @app.context_processor
 def _inject_version():
     """모든 템플릿에 버전 변수 주입."""
