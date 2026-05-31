@@ -1893,6 +1893,91 @@ def improvement_dashboard():
         return render_template('error.html', error=f'개선제안 대시보드: {e}')
 
 
+def _parse_award_file(wb, fname):
+    """업로드된 워크북 → award_history 행 리스트.
+    3가지 양식 자동 인식:
+      A. 분기 포상 ('X분기 포상' 시트) → quarterly_base
+      B. 연말 최대점수 ('누적합계' 시트, '_10만 포인트') → annual_top_score
+      C. 연말 최우수 ('최우수' 시트, '_50만 포인트') → annual_top_impact
+    """
+    import re as _re
+    rows = []   # (year, quarter, kind, name, prop_cnt, drv_cnt, score, points, sug_id, receipt_no, title)
+
+    # 파일명에서 연도 추출 (예: "25년..." → 2025)
+    m_yr = _re.search(r'(\d{2,4})\s*년', fname)
+    yr_from_name = None
+    if m_yr:
+        yy = int(m_yr.group(1))
+        yr_from_name = yy if yy >= 1000 else (2000 + yy)
+
+    for sn in wb.sheetnames:
+        ws = wb[sn]
+        # 시트 제목에서 연도/분기 힌트
+        title_cell = str(ws.cell(1, 1).value or '') + ' ' + str(ws.cell(1, 2).value or '')
+        m_y2 = _re.search(r'(\d{4})\s*년', title_cell)
+        year = int(m_y2.group(1)) if m_y2 else yr_from_name
+        m_q = _re.search(r'([1-4])\s*분기', sn) or _re.search(r'([1-4])\s*분기', title_cell)
+        quarter = int(m_q.group(1)) if m_q else None
+
+        # 양식 A: 분기 기본 포상
+        if '분기' in sn and '포상' in sn:
+            if not year or not quarter: continue
+            # R4 헤더: no | 구분(이름) | 제안건수 | 추진건수 | 점수 | 금액
+            for ri in range(5, ws.max_row + 1):
+                no_ = ws.cell(ri, 1).value
+                name = ws.cell(ri, 2).value
+                if not no_ or not name: continue
+                prop_c = _to_int(ws.cell(ri, 3).value)
+                drv_c  = _to_int(ws.cell(ri, 4).value)
+                score  = _to_int(ws.cell(ri, 5).value)
+                amount = _to_int(ws.cell(ri, 6).value)
+                if not amount: continue
+                rows.append((year, quarter, 'quarterly_base', str(name).strip(),
+                             prop_c, drv_c, score, amount, None, None, None))
+
+        # 양식 B: 연말 최대 점수 누적합계
+        elif sn == '누적합계' or '누계' in title_cell or '누적' in title_cell:
+            if not year: continue
+            # 1위만 100,000P (또는 모두 기록 후 표시 시 1위만)
+            for ri in range(4, ws.max_row + 1):
+                name = ws.cell(ri, 2).value
+                if not name: continue
+                prop_c = _to_int(ws.cell(ri, 3).value)
+                drv_c  = _to_int(ws.cell(ri, 4).value)
+                score  = _to_int(ws.cell(ri, 5).value)
+                if score is None: continue
+                # 1위만 포상 등록
+                pts = 100000 if (ri == 4) else 0
+                if pts == 0: continue
+                rows.append((year, None, 'annual_top_score', str(name).strip(),
+                             prop_c, drv_c, score, pts, None, None, None))
+
+        # 양식 C: 연말 최우수 (개선제안 평가서 형식)
+        elif sn == '최우수' or '최우수' in fname:
+            if not year: continue
+            # R1: 접수no | 부서 | 제안자
+            receipt = str(ws.cell(2, 2).value or '').strip()
+            proposer = str(ws.cell(2, 8).value or '').strip()
+            title    = str(ws.cell(4, 2).value or '').strip()
+            driver   = str(ws.cell(4, 8).value or '').strip()
+            score    = _to_int(ws.cell(4, 10).value)
+            # 제안자 + 추진자 둘 다 500,000P 각각? 또는 묶음? — 일단 둘 다 등록
+            for awardee in [proposer, driver]:
+                if not awardee or awardee in ('-', '없음'): continue
+                rows.append((year, None, 'annual_top_impact', awardee.strip(),
+                             None, None, score, 500000, None, receipt, title))
+    return rows
+
+
+def _to_int(v):
+    if v is None or v == '': return None
+    try:
+        s = str(v).replace(',', '').replace('P', '').strip()
+        return int(float(s))
+    except (ValueError, TypeError):
+        return None
+
+
 @app.route('/improvement/upload_award', methods=['GET', 'POST'])
 def improvement_upload_award():
     """분기/연말 포상 확정 파일 업로드 → DB 자동 반영."""
@@ -1908,41 +1993,43 @@ def improvement_upload_award():
             try:
                 from openpyxl import load_workbook
                 import io as _io
-                wb = load_workbook(_io.BytesIO(f.read()), read_only=True, data_only=True)
-                # 양식 자동 인식 (시트명 + 행/열 패턴)
-                # 사용자가 양식 줄 때 정확한 파싱 로직 확정
-                # 일단 임시: '연도', '수상자', '구분', '포상' 키워드 탐색
-                inserted = 0
-                for sn in wb.sheetnames:
-                    ws = wb[sn]
-                    # 헤더 행 찾기 (보통 1~3행 안)
-                    header_row = None
-                    cols = {}
-                    for ri in range(1, min(6, ws.max_row + 1)):
-                        row_vals = [str(ws.cell(ri, c).value or '').strip()
-                                    for c in range(1, ws.max_column + 1)]
-                        if any('수상' in v or '제안자' in v or '추진자' in v for v in row_vals):
-                            header_row = ri
-                            for ci, v in enumerate(row_vals, 1):
-                                if '연도' in v or '년' in v: cols['year'] = ci
-                                elif '분기' in v: cols['quarter'] = ci
-                                elif '수상' in v or '대상' in v or '제안자' in v: cols['name'] = ci
-                                elif '사번' in v: cols['emp_id'] = ci
-                                elif '구분' in v or '포상' in v: cols['kind'] = ci
-                                elif '점수' in v: cols['score'] = ci
-                            break
-                    # 임시 처리 — 실제 파싱은 양식 받은 후 정밀화
-                    if header_row and 'name' in cols:
-                        for ri in range(header_row + 1, ws.max_row + 1):
-                            name = ws.cell(ri, cols['name']).value
-                            if name: inserted += 1
+                wb = load_workbook(_io.BytesIO(f.read()), read_only=False, data_only=True)
+                parsed = _parse_award_file(wb, f.filename)
                 wb.close()
+                # 사번 자동 매칭 + UPSERT
+                inserted = 0
+                for (year, q, kind, name, pc, dc, sc, pts, sid, rno, ttl) in parsed:
+                    # 이름 → 사번 (있으면)
+                    emp_id = None
+                    r = db_pg.query_one(
+                        "SELECT emp_id FROM employees "
+                        "WHERE REPLACE(name, ' ', '') = REPLACE(%s, ' ', '') LIMIT 1",
+                        (name,))
+                    if r: emp_id = r['emp_id']
+                    with db_pg.cursor() as cur:
+                        cur.execute("""
+                            INSERT INTO imp_award_history (
+                                year, quarter, kind, awardee_name, awardee_id,
+                                proposal_count, driver_count, score, points,
+                                sug_id, receipt_no, title, source_file
+                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (year, quarter, kind, awardee_name) DO UPDATE SET
+                                proposal_count = EXCLUDED.proposal_count,
+                                driver_count = EXCLUDED.driver_count,
+                                score = EXCLUDED.score,
+                                points = EXCLUDED.points,
+                                awardee_id = COALESCE(EXCLUDED.awardee_id, imp_award_history.awardee_id),
+                                receipt_no = COALESCE(EXCLUDED.receipt_no, imp_award_history.receipt_no),
+                                title = COALESCE(EXCLUDED.title, imp_award_history.title),
+                                source_file = EXCLUDED.source_file,
+                                uploaded_at = NOW()
+                        """, (year, q, kind, name, emp_id, pc, dc, sc, pts,
+                              sid, rno, ttl, f.filename))
+                    inserted += 1
                 ok = True
-                msg = (f'✓ 파일 분석 완료 — 인식 {inserted}건\n'
-                       '※ 정확한 양식이 확정되면 자동 DB 반영됩니다. '
-                       '(현재는 미리보기만)')
+                msg = f'✓ 업로드 완료\n{inserted}건 DB 자동 반영됨\n파일: {f.filename}'
             except Exception as e:
-                msg = f'⚠ 파일 분석 오류: {e}'
+                msg = f'⚠ 분석 오류: {e}'
     return render_template('improvement_upload.html', msg=msg, ok=ok)
 
 
@@ -1979,23 +2066,40 @@ def improvement_stats():
             sql += " GROUP BY proposer_name ORDER BY total DESC"
             proposer_stats = db_pg.query(sql, tuple(params))
 
-        # 분기별 최다 포상 (3건 이상, 각 50,000P)
-        quarterly_awards = db_pg.query(
-            "SELECT * FROM v_quarterly_award ORDER BY year DESC, quarter DESC, kind")
-        # 연말 최대점수 포상 (각 연도별 1위, 100,000P)
+        # 확정 포상 이력 (파일 업로드로 등록된 것 우선)
+        # 분기 기본 포상
+        quarterly_base = db_pg.query(
+            "SELECT * FROM imp_award_history WHERE kind='quarterly_base' "
+            "ORDER BY year DESC, quarter DESC, points DESC")
+        # 분기 최다 (확정본 우선, 없으면 동적 계산 view)
+        quarterly_top = db_pg.query(
+            "SELECT * FROM imp_award_history "
+            "WHERE kind IN ('quarterly_top_propose', 'quarterly_top_drive') "
+            "ORDER BY year DESC, quarter DESC, kind")
+        if not quarterly_top:
+            # 확정 전이면 자동 계산 표시 (참고용)
+            quarterly_top = db_pg.query(
+                "SELECT year, quarter, "
+                "       CASE kind WHEN 'top_proposer' THEN 'quarterly_top_propose' "
+                "                 ELSE 'quarterly_top_drive' END AS kind, "
+                "       name AS awardee_name, cnt, points "
+                "FROM v_quarterly_award "
+                "ORDER BY year DESC, quarter DESC, kind")
+        # 연말 최대점수
         annual_top_score = db_pg.query(
-            "SELECT * FROM v_annual_top_score WHERE rn = 1 ORDER BY year DESC")
-        # 연말 최대효과 포상 (사장 결정, 500,000P)
+            "SELECT * FROM imp_award_history WHERE kind='annual_top_score' "
+            "ORDER BY year DESC")
+        # 연말 최우수
         annual_top_impact = db_pg.query(
-            "SELECT a.*, s.title, s.receipt_no FROM imp_annual_top_impact a "
-            "LEFT JOIN imp_suggestions s ON s.sug_id = a.sug_id "
-            "ORDER BY a.year DESC")
+            "SELECT * FROM imp_award_history WHERE kind='annual_top_impact' "
+            "ORDER BY year DESC")
 
         years = sorted({r['year'] for r in period_stats}, reverse=True)
         return render_template('improvement_stats.html',
                                period_stats=period_stats,
                                proposer_stats=proposer_stats,
-                               quarterly_awards=quarterly_awards,
+                               quarterly_base=quarterly_base,
+                               quarterly_awards=quarterly_top,
                                annual_top_score=annual_top_score,
                                annual_top_impact=annual_top_impact,
                                years=years, sel_year=year, sel_quarter=quarter,
