@@ -132,7 +132,8 @@
   {% if err == 'wrong_code' %}
   <div class="err">⚠ 회사 코드가 일치하지 않습니다.</div>
   {% elif err == 'not_emp' %}
-  <div class="err">⚠ 등록되지 않은 사번이거나 사용 정지된 사번입니다.</div>
+  <div class="err">⚠ 등록되지 않은 사번이거나 사용 정지된 사번입니다.<br>
+       (퇴사·휴직 시 자동 차단됩니다)</div>
   {% elif err == 'blocked' %}
   <div class="err">⚠ 5회 연속 실패로 30분간 차단되었습니다.<br>
        잠시 후 다시 시도해 주세요.</div>
