@@ -1841,6 +1841,51 @@ def equipment_dashboard():
         return render_template('error.html', error=f'설비 대시보드: {e}')
 
 
+@app.route('/equipment/search')
+def equipment_search():
+    """설비 이력 검색 (모바일) — 누적 이슈 검색만 가능. 접수는 데스크탑.
+    현장에서 동일 문제 사례 빠르게 확인용."""
+    if not db_pg.is_available():
+        return render_template('error.html',
+            error='Supabase 환경변수(SUPABASE_DB_URL) 미설정.')
+    try:
+        kw = request.args.get('q', '').strip()
+        eq = request.args.get('eq', '').strip()
+        results = []
+        if kw or eq:
+            sql = """
+                SELECT issue_id, occurred_at, eq_id, process_id,
+                       major_type, minor_type, detail, cause, action_taken,
+                       status, source_tag
+                FROM eq_issues WHERE 1=1
+            """
+            params = []
+            if eq:
+                sql += " AND eq_id = %s"; params.append(eq)
+            if kw:
+                sql += """ AND (
+                    to_tsvector('simple',
+                        COALESCE(detail,'') || ' ' || COALESCE(cause,'') || ' ' ||
+                        COALESCE(action_taken,'') || ' ' || COALESCE(major_type,'') || ' ' ||
+                        COALESCE(minor_type,''))
+                    @@ plainto_tsquery('simple', %s)
+                    OR detail ILIKE %s
+                    OR action_taken ILIKE %s
+                )"""
+                params.extend([kw, f'%{kw}%', f'%{kw}%'])
+            sql += " ORDER BY occurred_at DESC LIMIT 100"
+            results = db_pg.query(sql, tuple(params))
+        # 설비 목록 (선택용)
+        machines = db_pg.query(
+            "SELECT eq_id FROM eq_machines WHERE active=TRUE ORDER BY eq_id")
+        return render_template('equipment_search.html',
+                               kw=kw, sel_eq=eq, results=results,
+                               machines=machines,
+                               updated=datetime.now().strftime('%H:%M'))
+    except Exception as e:
+        return render_template('error.html', error=f'검색: {e}')
+
+
 @app.route('/improvement')
 def improvement_dashboard():
     """개선제안 대시보드 — 5년치 검색 + 통계."""

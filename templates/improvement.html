@@ -34,7 +34,7 @@
     <canvas id="chartYear" height="160"></canvas>
   </div>
 
-  <div class="sec-lbl">분기별 현황  (Q1·Q2·Q3·Q4 누적)</div>
+  <div class="sec-lbl">분기별 현황  (1·2·3·4분기 누적)</div>
   <div class="c-card mb-3" style="padding:12px">
     <canvas id="chartQuarter" height="180"></canvas>
   </div>
@@ -60,7 +60,7 @@
         {% set gc = {'S+':'#FCD34D','S':'#FACC15','A':'#4ADE80','B':'#22D3EE','C':'#94A3B8','D':'#F59E0B','E':'#FB923C','F':'#EF4444'}.get(r.grade,'#64748B') %}
         <div class="c-row">
           <div style="width:50px;text-align:center">
-            <div style="font-size:10px;color:var(--text2)">{{ r.year }}/{{ r.quarter or '-' }}</div>
+            <div style="font-size:10px;color:var(--text2)">{{ r.year }} · {{ r.quarter ~ '분기' if r.quarter else '-' }}</div>
           </div>
           <div style="flex:1;min-width:0">
             <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</div>
@@ -145,7 +145,7 @@
   const qYears = Object.keys(qByYear).sort();
   const qColors = ['#3B82F6', '#22C55E', '#F59E0B', '#EF4444'];
   const qDatasets = [1,2,3,4].map((q,i) => ({
-    label: 'Q'+q,
+    label: q+'분기',
     data: qYears.map(y => qByYear[y][q] || 0),
     backgroundColor: qColors[i],
     borderColor: '#1E293B',

@@ -5,9 +5,12 @@
 <div class="pg-hd">
   <div>
     <div class="pg-title">⚙ 설비 PM 관리</div>
-    <div class="pg-sub">실시간 이상 현황 + 진행 이슈</div>
+    <div class="pg-sub">실시간 점검 현황 + 이력 검색</div>
   </div>
-  <button class="btn-ref" onclick="location.reload()">↺</button>
+  <div style="display:flex;gap:6px">
+    <a href="/equipment/search" style="font-size:13px;color:#0B1120;background:var(--gold);text-decoration:none;padding:6px 12px;border-radius:6px;font-weight:700">🔍 검색</a>
+    <button class="btn-ref" onclick="location.reload()">↺</button>
+  </div>
 </div>
 
 <div class="px-3 pt-3">
@@ -15,7 +18,7 @@
   <div class="row g-2 mb-3">
     {% for key, label, color in [
       ('total',  '전체 설비', '#60A5FA'),
-      ('issues', '진행중',     '#EF4444'),
+      ('issues', '점검중',     '#EF4444'),
       ('today',  '오늘 접수',  '#F59E0B'),
       ('this_m', '이번달 완료', '#22C55E')
     ] %}
@@ -45,11 +48,11 @@
   </div>
   {% endif %}
 
-  <!-- 진행중 이슈 -->
-  <div class="sec-lbl">진행중 이슈  ({{ issues|length }}건)</div>
+  <!-- 점검중 이슈 -->
+  <div class="sec-lbl">점검중 이슈  ({{ issues|length }}건)</div>
   <div class="c-card mb-3">
     {% if not issues %}
-      <div class="empty">진행중 이슈 없음 ✨</div>
+      <div class="empty">점검중 이슈 없음 ✨</div>
     {% else %}
       <div class="scroll-list">
       {% for i in issues %}
