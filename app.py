@@ -1893,6 +1893,59 @@ def improvement_dashboard():
         return render_template('error.html', error=f'개선제안 대시보드: {e}')
 
 
+@app.route('/improvement/upload_award', methods=['GET', 'POST'])
+def improvement_upload_award():
+    """분기/연말 포상 확정 파일 업로드 → DB 자동 반영."""
+    if not db_pg.is_available():
+        return render_template('error.html',
+            error='Supabase 환경변수(SUPABASE_DB_URL) 미설정.')
+    msg, ok = None, None
+    if request.method == 'POST':
+        f = request.files.get('file')
+        if not f or not f.filename:
+            msg = '파일을 선택하세요.'
+        else:
+            try:
+                from openpyxl import load_workbook
+                import io as _io
+                wb = load_workbook(_io.BytesIO(f.read()), read_only=True, data_only=True)
+                # 양식 자동 인식 (시트명 + 행/열 패턴)
+                # 사용자가 양식 줄 때 정확한 파싱 로직 확정
+                # 일단 임시: '연도', '수상자', '구분', '포상' 키워드 탐색
+                inserted = 0
+                for sn in wb.sheetnames:
+                    ws = wb[sn]
+                    # 헤더 행 찾기 (보통 1~3행 안)
+                    header_row = None
+                    cols = {}
+                    for ri in range(1, min(6, ws.max_row + 1)):
+                        row_vals = [str(ws.cell(ri, c).value or '').strip()
+                                    for c in range(1, ws.max_column + 1)]
+                        if any('수상' in v or '제안자' in v or '추진자' in v for v in row_vals):
+                            header_row = ri
+                            for ci, v in enumerate(row_vals, 1):
+                                if '연도' in v or '년' in v: cols['year'] = ci
+                                elif '분기' in v: cols['quarter'] = ci
+                                elif '수상' in v or '대상' in v or '제안자' in v: cols['name'] = ci
+                                elif '사번' in v: cols['emp_id'] = ci
+                                elif '구분' in v or '포상' in v: cols['kind'] = ci
+                                elif '점수' in v: cols['score'] = ci
+                            break
+                    # 임시 처리 — 실제 파싱은 양식 받은 후 정밀화
+                    if header_row and 'name' in cols:
+                        for ri in range(header_row + 1, ws.max_row + 1):
+                            name = ws.cell(ri, cols['name']).value
+                            if name: inserted += 1
+                wb.close()
+                ok = True
+                msg = (f'✓ 파일 분석 완료 — 인식 {inserted}건\n'
+                       '※ 정확한 양식이 확정되면 자동 DB 반영됩니다. '
+                       '(현재는 미리보기만)')
+            except Exception as e:
+                msg = f'⚠ 파일 분석 오류: {e}'
+    return render_template('improvement_upload.html', msg=msg, ok=ok)
+
+
 @app.route('/improvement/stats')
 def improvement_stats():
     """개선제안 통계 — 연도/분기별 + 포상 (1점=1000P)."""

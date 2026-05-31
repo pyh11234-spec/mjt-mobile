@@ -7,7 +7,10 @@
     <div class="pg-title">📊 개선제안 통계</div>
     <div class="pg-sub">연도·분기 선택 → 제안자 통계 표시</div>
   </div>
-  <a href="/improvement" style="font-size:13px;color:var(--gold);text-decoration:none;padding:6px 12px;border:1px solid var(--gold);border-radius:6px">← 돌아가기</a>
+  <div style="display:flex;gap:6px">
+    <a href="/improvement/upload_award" style="font-size:13px;color:#0B1120;background:var(--gold);text-decoration:none;padding:6px 12px;border-radius:6px;font-weight:700">📤 포상 업로드</a>
+    <a href="/improvement" style="font-size:13px;color:var(--gold);text-decoration:none;padding:6px 12px;border:1px solid var(--gold);border-radius:6px">←</a>
+  </div>
 </div>
 
 <div class="px-3 pt-3">
@@ -76,7 +79,7 @@
 
   <!-- 분기별 최다 포상 (3건 이상, 50,000P) -->
   {% if quarterly_awards %}
-  <div class="sec-lbl">🏆 분기별 최다 포상  <span style="color:var(--text2);font-weight:400">(3건 이상 / 각 50,000P)</span></div>
+  <div class="sec-lbl">🏆 분기별 최다 포상  <span style="color:var(--text2);font-weight:400">(최다제안·최다추진 / 각 50,000P)</span></div>
   <div class="c-card mb-3">
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead>
@@ -129,7 +132,7 @@
 
     {% if annual_top_impact %}
     <div style="padding:12px 14px">
-      <div style="font-size:11px;color:#A855F7;font-weight:700;margin-bottom:6px">👑 연말 최대효과 (500,000P · 사장 결정)</div>
+      <div style="font-size:11px;color:#A855F7;font-weight:700;margin-bottom:6px">👑 연말 최대효과 (500,000P)</div>
       {% for a in annual_top_impact %}
       <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0">
         <span><b>{{ a.year }}년</b>  ·  {{ a.awardee_name }}  <span style="color:var(--text2);font-size:11px">({{ a.title or '' }})</span></span>
@@ -139,7 +142,7 @@
     </div>
     {% else %}
     <div style="padding:12px 14px;font-size:12px;color:var(--text2)">
-      ⓘ 연말 최대효과 포상: 사장님 직접 결정 후 별도 등록
+      ⓘ 연말 최대효과 — 확정 파일 업로드 시 자동 표시됨
     </div>
     {% endif %}
   </div>

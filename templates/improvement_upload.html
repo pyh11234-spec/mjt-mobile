@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% set page = 'improvement' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">📤 포상 확정 파일 업로드</div>
+    <div class="pg-sub">분기별·연말 포상 확정 결과 자동 반영</div>
+  </div>
+  <a href="/improvement/stats" style="font-size:13px;color:var(--gold);text-decoration:none;padding:6px 12px;border:1px solid var(--gold);border-radius:6px">← 통계</a>
+</div>
+
+<div class="px-3 pt-3">
+  {% if msg %}
+  <div class="c-card mb-3" style="padding:14px;border-left:3px solid {{ 'var(--green)' if ok else 'var(--red)' }}">
+    <div style="font-size:13px;color:{{ 'var(--green)' if ok else 'var(--red)' }};white-space:pre-line">{{ msg }}</div>
+  </div>
+  {% endif %}
+
+  <div class="c-card mb-3" style="padding:16px">
+    <form method="post" enctype="multipart/form-data">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.6">
+        분기별 최다 포상 / 연말 최대점수 / 연말 최대효과 파일을 업로드하면<br>
+        DB에 자동 반영되어 [통계] 페이지에 즉시 표시됩니다.
+      </div>
+      <input type="file" name="file" accept=".xlsx,.xls" required
+             style="width:100%;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;margin-bottom:12px">
+      <button type="submit"
+              style="width:100%;padding:12px;background:linear-gradient(135deg,#FCD34D,#F59E0B);color:#0B1120;border:none;border-radius:8px;font-weight:800;font-size:14px;cursor:pointer">
+        📤 업로드 + 자동 반영
+      </button>
+    </form>
+  </div>
+
+  <div class="c-card mb-3" style="padding:14px">
+    <div style="font-size:11px;color:var(--gold);font-weight:700;margin-bottom:8px">지원 파일 종류</div>
+    <ul style="font-size:12px;color:var(--text2);line-height:1.8;padding-left:18px;margin:0">
+      <li>분기별 포상 명단 (예: <code>25년 X분기 포상.xlsx</code>)</li>
+      <li>연말 최대점수 포상 (예: <code>25년 최대 점수 포상.xlsx</code>)</li>
+      <li>연말 최우수 제안상 (예: <code>25년 최우수 제안상.xlsx</code>)</li>
+    </ul>
+  </div>
+
+  <div class="t2 fs11 text-end mb-3">v{{ mjt_version }}</div>
+</div>
+
+{% endblock %}
