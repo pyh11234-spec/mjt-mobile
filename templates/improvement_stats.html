@@ -32,7 +32,7 @@
   </form>
 
   <!-- 분기별 집계 표 -->
-  <div class="sec-lbl">연도·분기별 집계</div>
+  <div class="sec-lbl">연도·분기별 집계  <span style="color:var(--text2);font-weight:400">(1점 = 1,000P)</span></div>
   <div class="c-card mb-3">
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead>
@@ -40,7 +40,7 @@
           <th style="padding:10px 14px;text-align:left">연도/Q</th>
           <th style="padding:10px;text-align:right">건수</th>
           <th style="padding:10px;text-align:right">A 이상</th>
-          <th style="padding:10px 14px;text-align:right">포상 합계 (P)</th>
+          <th style="padding:10px 14px;text-align:right">포상 누적</th>
         </tr>
       </thead>
       <tbody>
@@ -54,12 +54,96 @@
           </td>
           <td style="padding:10px;text-align:right;font-weight:700">{{ r.total }}</td>
           <td style="padding:10px;text-align:right;color:var(--gold)">{{ r.high_grade or 0 }}</td>
-          <td style="padding:10px 14px;text-align:right;color:var(--green)">{{ '{:,}'.format(r.reward_sum or 0) }}</td>
+          <td style="padding:10px 14px;text-align:right;color:var(--green);font-weight:700">
+            {{ '{:,}'.format((r.reward_sum or 0) * 1000) }} <span style="font-size:10px;color:var(--text2);font-weight:400">P</span>
+          </td>
         </tr>
         {% endfor %}
+        {% if period_stats %}
+        {% set total_p = (period_stats|sum(attribute='reward_sum') or 0) * 1000 %}
+        <tr style="background:rgba(252,211,77,0.05);border-top:2px solid var(--gold)">
+          <td style="padding:10px 14px;font-weight:800;color:var(--gold)">전체 누적</td>
+          <td style="padding:10px;text-align:right;font-weight:800">{{ period_stats|sum(attribute='total') }}</td>
+          <td style="padding:10px;text-align:right;color:var(--gold);font-weight:700">{{ period_stats|sum(attribute='high_grade') }}</td>
+          <td style="padding:10px 14px;text-align:right;color:var(--gold);font-weight:800">
+            {{ '{:,}'.format(total_p) }} <span style="font-size:10px;font-weight:400">P</span>
+          </td>
+        </tr>
+        {% endif %}
       </tbody>
     </table>
   </div>
+
+  <!-- 분기별 최다 포상 (3건 이상, 50,000P) -->
+  {% if quarterly_awards %}
+  <div class="sec-lbl">🏆 분기별 최다 포상  <span style="color:var(--text2);font-weight:400">(3건 이상 / 각 50,000P)</span></div>
+  <div class="c-card mb-3">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);color:var(--text2);font-size:11px">
+          <th style="padding:10px 14px;text-align:left">연도/Q</th>
+          <th style="padding:10px;text-align:left">구분</th>
+          <th style="padding:10px;text-align:left">대상자</th>
+          <th style="padding:10px;text-align:right">건수</th>
+          <th style="padding:10px 14px;text-align:right">포상</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for a in quarterly_awards %}
+        {% set kind_kr = '최다제안' if a.kind == 'top_proposer' else '최다추진' %}
+        {% set kind_color = '#3B82F6' if a.kind == 'top_proposer' else '#22C55E' %}
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:9px 14px">{{ a.year }} · Q{{ a.quarter }}</td>
+          <td style="padding:9px"><span style="color:{{ kind_color }};font-weight:700">{{ kind_kr }}</span></td>
+          <td style="padding:9px;font-weight:600">{{ a.name }}</td>
+          <td style="padding:9px;text-align:right">{{ a.cnt }} 건</td>
+          <td style="padding:9px 14px;text-align:right;color:var(--gold);font-weight:700">
+            {{ '{:,}'.format(a.points) }} <span style="font-size:10px;color:var(--text2);font-weight:400">P</span>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- 연말 포상 (최대점수 100,000P + 최대효과 500,000P) -->
+  {% if annual_top_score or annual_top_impact %}
+  <div class="sec-lbl">👑 연말 포상</div>
+  <div class="c-card mb-3" style="padding:0">
+    {% if annual_top_score %}
+    <div style="padding:12px 14px;border-bottom:1px solid var(--border);background:rgba(252,211,77,0.05)">
+      <div style="font-size:11px;color:var(--gold);font-weight:700;margin-bottom:6px">⭐ 연말 최대점수 (100,000P)</div>
+      {% for a in annual_top_score %}
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0">
+        <span><b>{{ a.year }}년</b>  ·  {{ a.name }}</span>
+        <span>
+          <span style="color:var(--text2);font-size:11px">총 {{ a.total_score|int }}점</span>
+          &nbsp;
+          <span style="color:var(--gold);font-weight:700">100,000 P</span>
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if annual_top_impact %}
+    <div style="padding:12px 14px">
+      <div style="font-size:11px;color:#A855F7;font-weight:700;margin-bottom:6px">👑 연말 최대효과 (500,000P · 사장 결정)</div>
+      {% for a in annual_top_impact %}
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0">
+        <span><b>{{ a.year }}년</b>  ·  {{ a.awardee_name }}  <span style="color:var(--text2);font-size:11px">({{ a.title or '' }})</span></span>
+        <span style="color:#A855F7;font-weight:700">500,000 P</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div style="padding:12px 14px;font-size:12px;color:var(--text2)">
+      ⓘ 연말 최대효과 포상: 사장님 직접 결정 후 별도 등록
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <!-- 선택 기간 제안자 (사용자가 명시적으로 선택했을 때만) -->
   {% if sel_year and proposer_stats %}
@@ -83,7 +167,9 @@
           <td style="padding:10px 14px;font-weight:600">{{ p.proposer_name }}</td>
           <td style="padding:10px;text-align:right">{{ p.total }}</td>
           <td style="padding:10px;color:var(--text2);font-size:11px">{{ p.grades }}</td>
-          <td style="padding:10px 14px;text-align:right;color:var(--green)">{{ '{:,}'.format(p.reward_sum or 0) }}</td>
+          <td style="padding:10px 14px;text-align:right;color:var(--green);font-weight:700">
+            {{ '{:,}'.format((p.reward_sum or 0) * 1000) }} <span style="font-size:10px;color:var(--text2);font-weight:400">P</span>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

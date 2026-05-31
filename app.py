@@ -30,8 +30,26 @@ def _norm_date(s) -> str:
     return s
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
-app.permanent_session_lifetime = timedelta(days=30)   # 30일 쿠키 유지
+
+# ⚠ SECRET_KEY: Render 환경변수 'SECRET_KEY' 필수 등록
+# 미등록 시 재배포마다 새로 생성됨 → 기존 세션 모두 무효화
+# 환경변수가 없으면 경고 표시 (개발 환경만 fallback)
+_secret = os.environ.get('SECRET_KEY')
+if not _secret:
+    print('[⚠ WARN] SECRET_KEY 환경변수 미설정 — 재배포 시 세션 만료됨!')
+    _secret = secrets.token_hex(32)
+app.secret_key = _secret
+
+# 세션 쿠키 옵션 명시 (30일 유지)
+app.config.update(
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+    SESSION_REFRESH_EACH_REQUEST=True,    # 매 요청마다 쿠키 갱신
+    SESSION_COOKIE_NAME='mjt_session',
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=True,           # HTTPS 전용 (Render는 HTTPS)
+)
+app.permanent_session_lifetime = timedelta(days=30)
 
 # 식당 메뉴 등록 비밀번호
 MENU_PW = os.environ.get('MENU_PW', '3838')
@@ -1877,7 +1895,7 @@ def improvement_dashboard():
 
 @app.route('/improvement/stats')
 def improvement_stats():
-    """개선제안 통계 — 연도/분기별 선택해서 보기. 퇴사자 보호 위해 본인 클릭 시만 노출."""
+    """개선제안 통계 — 연도/분기별 + 포상 (1점=1000P)."""
     if not db_pg.is_available():
         return render_template('error.html',
             error='Supabase 환경변수(SUPABASE_DB_URL) 미설정.')
@@ -1885,7 +1903,6 @@ def improvement_stats():
         year = request.args.get('year', type=int)
         quarter = request.args.get('quarter', type=int)
 
-        # 연도 + 분기별 집계
         period_stats = db_pg.query("""
             SELECT year, quarter,
                    COUNT(*) AS total,
@@ -1896,7 +1913,6 @@ def improvement_stats():
             GROUP BY year, quarter
             ORDER BY year DESC, quarter DESC
         """)
-        # 선택한 기간의 제안자별 (선택 시에만 표시)
         proposer_stats = []
         if year:
             sql = ("SELECT proposer_name, COUNT(*) AS total, "
@@ -1910,10 +1926,25 @@ def improvement_stats():
             sql += " GROUP BY proposer_name ORDER BY total DESC"
             proposer_stats = db_pg.query(sql, tuple(params))
 
+        # 분기별 최다 포상 (3건 이상, 각 50,000P)
+        quarterly_awards = db_pg.query(
+            "SELECT * FROM v_quarterly_award ORDER BY year DESC, quarter DESC, kind")
+        # 연말 최대점수 포상 (각 연도별 1위, 100,000P)
+        annual_top_score = db_pg.query(
+            "SELECT * FROM v_annual_top_score WHERE rn = 1 ORDER BY year DESC")
+        # 연말 최대효과 포상 (사장 결정, 500,000P)
+        annual_top_impact = db_pg.query(
+            "SELECT a.*, s.title, s.receipt_no FROM imp_annual_top_impact a "
+            "LEFT JOIN imp_suggestions s ON s.sug_id = a.sug_id "
+            "ORDER BY a.year DESC")
+
         years = sorted({r['year'] for r in period_stats}, reverse=True)
         return render_template('improvement_stats.html',
                                period_stats=period_stats,
                                proposer_stats=proposer_stats,
+                               quarterly_awards=quarterly_awards,
+                               annual_top_score=annual_top_score,
+                               annual_top_impact=annual_top_impact,
                                years=years, sel_year=year, sel_quarter=quarter,
                                updated=datetime.now().strftime('%H:%M'))
     except Exception as e:
