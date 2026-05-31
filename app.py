@@ -1843,6 +1843,10 @@ def improvement_dashboard():
         years = db_pg.query(
             "SELECT year, COUNT(*) c FROM imp_suggestions "
             "WHERE year IS NOT NULL GROUP BY year ORDER BY year")
+        # 연도×분기 누적 데이터
+        qstats = db_pg.query(
+            "SELECT year, quarter, COUNT(*) c FROM imp_suggestions "
+            "WHERE year IS NOT NULL GROUP BY year, quarter ORDER BY year")
         if kw:
             results = db_pg.query("""
                 SELECT year, quarter, receipt_no, proposer_name, title, grade
@@ -1864,7 +1868,8 @@ def improvement_dashboard():
             "WHERE proposer_name IS NOT NULL "
             "GROUP BY proposer_name ORDER BY c DESC LIMIT 10")
         return render_template('improvement.html',
-                               kpi=kpi, years=years, results=results, top=top,
+                               kpi=kpi, years=years, qstats=qstats,
+                               results=results, top=top,
                                kw=kw, updated=datetime.now().strftime('%H:%M'))
     except Exception as e:
         return render_template('error.html', error=f'개선제안 대시보드: {e}')
