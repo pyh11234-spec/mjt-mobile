@@ -1526,15 +1526,16 @@ def api_face_descriptors():
 def api_register_face_frame():
     """모바일 얼굴 등록 — 단계별 이미지 저장 (face_pending 테이블)."""
     import base64 as _b64
-    body   = request.get_json(silent=True) or {}
-    emp_id = body.get('emp_id', '').strip().upper()
-    phase  = body.get('phase', 0)
+    _PW = os.environ.get('ADMIN_PW', '3838')
+    body    = request.get_json(silent=True) or {}
+    emp_id  = body.get('emp_id', '').strip().upper()
+    phase   = body.get('phase', 0)
     img_b64 = body.get('image', '')
-    pw     = body.get('pw', '')
+    pw      = body.get('pw', '')
 
     if not emp_id or not img_b64:
         return jsonify({'ok': False, 'msg': '필수 값 누락'})
-    if pw != ADMIN_PW:
+    if pw != _PW:
         return jsonify({'ok': False, 'msg': '관리자 비밀번호 오류'})
 
     try:
@@ -1544,12 +1545,13 @@ def api_register_face_frame():
 
     try:
         import db_pg
-        if db_pg.is_available():
-            with db_pg.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO face_pending (emp_id, phase, image_data) VALUES (%s, %s, %s)",
-                    (emp_id, int(phase), img_bytes))
-            return jsonify({'ok': True})
+        if not db_pg.is_available():
+            return jsonify({'ok': False, 'msg': 'DB 연결 불가 — 환경변수 확인'})
+        with db_pg.cursor() as cur:
+            cur.execute(
+                "INSERT INTO face_pending (emp_id, phase, image_data) VALUES (%s, %s, %s)",
+                (emp_id, int(phase), img_bytes))
+        return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'msg': str(e)[:80]})
 
