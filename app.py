@@ -187,8 +187,7 @@ def login():
         # 이미 로그인된 상태면 다음 페이지로
         if session.get('emp_id') and not err:
             return redirect(nxt)
-        from _version import VERSION
-        return render_template('login.html', err=err, next=nxt, version=VERSION)
+        return render_template('login.html', err=err, next=nxt, version='1.4.0')
 
     ip = _ip()
     if _is_blocked(ip):
