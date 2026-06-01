@@ -164,6 +164,10 @@
   <a href="/register_face" class="reg-link">얼굴 등록</a>
 </div>
 
+<div id="dbgBar" style="position:fixed;top:60px;left:0;right:0;z-index:9999;
+     background:rgba(220,38,38,0.92);color:#fff;font-size:13px;font-weight:700;
+     padding:8px 12px;text-align:center;min-height:20px">DBG: 시작 대기…</div>
+
 <div class="cam-wrap" id="camWrap">
   <div class="loading" id="loadingEl">
     <div class="spinner"></div>
@@ -230,6 +234,10 @@ function setStatus(msg, type) {
   const d = document.getElementById('statusDot');
   d.className = 'status-dot dot-' + (type || 'load');
 }
+function dbg(msg) {
+  const el = document.getElementById('dbgBar');
+  if (el) el.textContent = 'DBG: ' + msg;
+}
 
 function showToast(msg, type, duration) {
   const t = document.getElementById('toast');
@@ -293,9 +301,11 @@ function captureFrame() {
   return c.toDataURL('image/jpeg', 0.75);
 }
 
+let _dbgN = 0;
 async function detectOnce() {
   if (!scanning) return;
   setStatus('분석 중…', 'scan');
+  dbg('프레임 전송 #' + (++_dbgN));
   const img = captureFrame();
   try {
     const ctrl = new AbortController();
@@ -308,6 +318,7 @@ async function detectOnce() {
     });
     clearTimeout(tid);
     const data = await res.json();
+    dbg('응답: ' + JSON.stringify(data).slice(0, 80));
     if (data.ok && data.emp_id) {
       failCount = 0; registerNudged = false;
       const now  = Date.now();
@@ -335,6 +346,7 @@ async function detectOnce() {
       }
     }
   } catch (e) {
+    dbg('오류: ' + e.message);
     setStatus('서버 연결 오류: ' + e.message, 'scan');
   }
   scheduleDetect();
@@ -372,11 +384,13 @@ async function init() {
   document.getElementById('loadingEl').style.display = 'none';
   setStatus('얼굴을 카메라에 대세요', 'ready');
   document.getElementById('loadTxt').textContent = '서버 인식 모드 (LBPH)';
+  dbg('카메라 OK, 스캔 시작 (vid ' + vid.videoWidth + 'x' + vid.videoHeight + ')');
   scanning = true;
   scheduleDetect();
 }
 
 init().catch(e => {
+  dbg('init 실패: ' + e.message);
   document.getElementById('loadTxt').textContent = '초기화 실패: ' + e.message;
 });
 </script>
