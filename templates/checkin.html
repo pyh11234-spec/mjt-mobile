@@ -164,10 +164,6 @@
   <a href="/register_face" class="reg-link">얼굴 등록</a>
 </div>
 
-<div id="dbgBar" style="position:fixed;top:60px;left:0;right:0;z-index:9999;
-     background:rgba(220,38,38,0.92);color:#fff;font-size:13px;font-weight:700;
-     padding:8px 12px;text-align:center;min-height:20px">DBG: 시작 대기…</div>
-
 <div class="cam-wrap" id="camWrap">
   <div class="loading" id="loadingEl">
     <div class="spinner"></div>
@@ -234,10 +230,7 @@ function setStatus(msg, type) {
   const d = document.getElementById('statusDot');
   d.className = 'status-dot dot-' + (type || 'load');
 }
-function dbg(msg) {
-  const el = document.getElementById('dbgBar');
-  if (el) el.textContent = 'DBG: ' + msg;
-}
+function dbg() { /* 디버그 비활성 */ }
 
 function showToast(msg, type, duration) {
   const t = document.getElementById('toast');
