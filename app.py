@@ -1597,7 +1597,10 @@ def api_face_recognize():
     if not img_b64:
         return jsonify({'ok': False, 'msg': '이미지 없음'})
     try:
-        import cv2, numpy as _np
+        try:
+            import cv2, numpy as _np
+        except ImportError as ie:
+            return jsonify({'ok': False, 'msg': f'OpenCV 미설치: {ie}'})
         img_bytes = _b64.b64decode(img_b64.split(',')[-1])
         arr = _np.frombuffer(img_bytes, dtype=_np.uint8)
         frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)

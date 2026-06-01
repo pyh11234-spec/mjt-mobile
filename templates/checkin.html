@@ -330,7 +330,9 @@ async function detectOnce() {
           'err', 6000);
       }
     }
-  } catch (e) { /* 네트워크 일시 오류 무시 */ }
+  } catch (e) {
+    setStatus('서버 연결 오류: ' + e.message, 'scan');
+  }
   scheduleDetect();
 }
 
