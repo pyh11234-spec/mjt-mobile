@@ -187,6 +187,17 @@
     </div>
     <button class="btn-action btn-cancel" onclick="closeCard()">취소 (메인으로 나가기)</button>
   </div>
+
+  <div class="result-card" id="registerCard">
+    <div style="font-size:40px;margin-bottom:8px">📸</div>
+    <div class="emp-name" style="font-size:18px">얼굴이 등록되지 않았어요</div>
+    <div class="emp-dept" style="margin-bottom:18px">먼저 얼굴을 등록한 후 체크인할 수 있어요</div>
+    <div class="action-btns">
+      <button class="btn-action btn-lunch" style="background:#22C55E"
+              onclick="location.href='/register_face'">＋ 얼굴 등록하러 가기</button>
+    </div>
+    <button class="btn-action btn-cancel" onclick="dismissRegister()">다시 인식 시도</button>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -254,6 +265,21 @@ function showCard(emp) {
   document.getElementById('cardDept').textContent = emp.factory || emp.emp_id;
   document.getElementById('resultCard').classList.add('show');
   setStatus('인식 완료 – 신청 항목을 선택하세요', 'done');
+}
+
+function showRegisterCard() {
+  scanning = false;
+  clearTimeout(detectTimer);
+  document.getElementById('registerCard').classList.add('show');
+  setStatus('미등록 사원 – 얼굴 등록이 필요합니다', 'error');
+}
+
+function dismissRegister() {
+  document.getElementById('registerCard').classList.remove('show');
+  failCount = 0;
+  setStatus('얼굴을 카메라에 대세요', 'ready');
+  scanning = true;
+  scheduleDetect();
 }
 
 // ── Check-in ────────────────────────────────────────────────────
@@ -333,12 +359,10 @@ async function detectOnce() {
     } else {
       // 얼굴은 감지됐지만 미등록
       failCount++;
-      setStatus('등록된 얼굴과 일치하지 않습니다', 'scan');
-      if (failCount >= 4 && !registerNudged) {
-        registerNudged = true;
-        showToast(
-          '얼굴이 등록되지 않은 사원입니다.\n우측 상단 [얼굴 등록] 버튼에서 등록해주세요.',
-          'err', 6000);
+      setStatus(`등록된 얼굴이 아닙니다 (${failCount}/4)`, 'scan');
+      if (failCount >= 4) {
+        showRegisterCard();
+        return;
       }
     }
   } catch (e) {
