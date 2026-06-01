@@ -1588,6 +1588,17 @@ def _load_lbph_model():
         return None, {}
 
 
+@app.route('/api/cv_check')
+def api_cv_check():
+    """OpenCV 설치 확인용 (진단)."""
+    try:
+        import cv2
+        has_face = hasattr(cv2, 'face')
+        return jsonify({'ok': True, 'version': cv2.__version__, 'lbph': has_face})
+    except Exception as e:
+        return jsonify({'ok': False, 'msg': str(e)})
+
+
 @app.route('/api/face_recognize', methods=['POST'])
 def api_face_recognize():
     """모바일 카메라 프레임 → 서버에서 LBPH 인식 → emp_id 반환."""

@@ -298,11 +298,15 @@ async function detectOnce() {
   const img = captureFrame();
   if (!img) { scheduleDetect(); return; }
   try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 5000);
     const res  = await fetch('/api/face_recognize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: img }),
+      signal: ctrl.signal,
     });
+    clearTimeout(tid);
     const data = await res.json();
     if (data.ok && data.emp_id) {
       failCount = 0; registerNudged = false;
