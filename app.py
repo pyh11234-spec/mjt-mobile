@@ -64,7 +64,7 @@ _login_lock = threading.Lock()
 
 # 인증 면제 경로 (로그인/정적 자산 등)
 _AUTH_EXEMPT_PREFIX = ('/login', '/logout', '/static', '/api/health',
-                       '/favicon.ico', '/api/cv_check',
+                       '/favicon.ico', '/api/cv_check', '/api/face_cache_reset',
                        '/api/face_recognize', '/checkin', '/register_face')
 
 
@@ -1587,6 +1587,14 @@ def _load_lbph_model():
         return rec, labels
     except Exception as e:
         return None, {}
+
+
+@app.route('/api/face_cache_reset', methods=['GET', 'POST'])
+def api_face_cache_reset():
+    """LBPH 모델 캐시 강제 무효화 (삭제/재학습 후 호출)."""
+    global _face_loaded_at
+    _face_loaded_at = 0.0
+    return jsonify({'ok': True})
 
 
 @app.route('/api/cv_check')
