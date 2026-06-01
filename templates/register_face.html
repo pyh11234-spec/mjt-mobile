@@ -30,6 +30,7 @@
   .phase-banner.p1 { background: #1A3A5C; }
   .phase-banner.p2 { background: #4A2308; }
   .phase-banner.p3 { background: #3B0764; }
+  .phase-banner.p4 { background: #0C3040; }
   .ph-arrow { font-size: 28px; min-width: 36px; text-align: center; }
   .ph-label { font-size: 16px; font-weight: 800; color: #fff; flex: 1; padding: 0 10px; }
   .ph-step  { font-size: 20px; font-weight: 900; color: rgba(255,255,255,0.5); }
@@ -119,6 +120,7 @@
         <span class="ph-dot" id="pd1"></span>
         <span class="ph-dot" id="pd2"></span>
         <span class="ph-dot" id="pd3"></span>
+        <span class="ph-dot" id="pd4"></span>
       </div>
     </div>
     <span class="ph-step" id="phStep">0 / 4</span>
@@ -149,6 +151,7 @@ const PHASES = [
   { label: '오른쪽을 보세요', arrow: '▶', cls: 'p1' },
   { label: '왼쪽을 보세요',   arrow: '◀', cls: 'p2' },
   { label: '위를 보세요',     arrow: '▲', cls: 'p3' },
+  { label: '아래를 보세요',   arrow: '▼', cls: 'p4' },
 ];
 let descriptors = [];
 let stream = null;
@@ -167,7 +170,7 @@ function setPhase(idx) {
   document.getElementById('phArrow').textContent = p.arrow;
   document.getElementById('phLabel').textContent = p.label;
   document.getElementById('phStep').textContent  = `${idx + 1} / ${PHASES.length}`;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     document.getElementById('pd' + i).className = 'ph-dot' + (i <= idx ? ' done' : '');
   }
   document.getElementById('progBar').style.width = ((idx / PHASES.length) * 100) + '%';
