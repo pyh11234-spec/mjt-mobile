@@ -293,12 +293,15 @@ async function doCheckin(action) {
 // ── 서버사이드 LBPH 인식 루프 ────────────────────────────────────
 function captureFrame() {
   const vid = document.getElementById('vid');
-  const w = vid.videoWidth  || vid.clientWidth  || 320;
-  const h = vid.videoHeight || vid.clientHeight || 240;
+  const vw = vid.videoWidth, vh = vid.videoHeight;
+  if (!vw || !vh) return null;
+  // 종횡비 유지 — 긴 변 480 기준 축소 (얼굴 비율 보존)
+  const scale = 480 / Math.max(vw, vh);
   const c = document.createElement('canvas');
-  c.width = Math.min(w, 320); c.height = Math.min(h, 240);
+  c.width  = Math.round(vw * scale);
+  c.height = Math.round(vh * scale);
   c.getContext('2d').drawImage(vid, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', 0.75);
+  return c.toDataURL('image/jpeg', 0.85);
 }
 
 let _dbgN = 0;

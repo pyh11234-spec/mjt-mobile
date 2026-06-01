@@ -1630,7 +1630,7 @@ def api_face_recognize():
         # Haar cascade 얼굴 검출
         haar_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         cascade = cv2.CascadeClassifier(haar_path)
-        faces = cascade.detectMultiScale(gray, 1.3, 5, minSize=(60, 60))
+        faces = cascade.detectMultiScale(gray, 1.2, 4, minSize=(50, 50))
         if not len(faces):
             return jsonify({'ok': False, 'face': False})
         rec, labels = _load_lbph_model()
