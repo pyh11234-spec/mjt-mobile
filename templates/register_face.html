@@ -4,88 +4,64 @@
 
 <style>
   .cam-box {
-    position: relative;
-    background: #000;
-    border-radius: 12px;
-    overflow: hidden;
-    aspect-ratio: 4/3;
-    max-height: 300px;
-    margin-bottom: 0;
+    position: relative; background: #000;
+    border-radius: 0 0 12px 12px;
+    overflow: hidden; aspect-ratio: 4/3; max-height: 300px;
   }
-  .cam-box video, .cam-box canvas {
+  .cam-box video {
     position: absolute; top:0; left:0;
-    width:100%; height:100%;
-    object-fit: cover;
+    width:100%; height:100%; object-fit:cover;
     transform: scaleX(-1);
   }
-  .cam-box canvas { pointer-events: none; }
-
-  /* 단계 배너 */
   .phase-banner {
     border-radius: 12px 12px 0 0;
     padding: 12px 16px;
     display: flex; align-items: center; justify-content: space-between;
     transition: background .4s;
   }
-  .phase-banner.p0 { background: #0D4F2E; }
-  .phase-banner.p1 { background: #1A3A5C; }
-  .phase-banner.p2 { background: #4A2308; }
-  .phase-banner.p3 { background: #3B0764; }
-  .phase-banner.p4 { background: #0C3040; }
-  .ph-arrow { font-size: 28px; min-width: 36px; text-align: center; }
-  .ph-label { font-size: 16px; font-weight: 800; color: #fff; flex: 1; padding: 0 10px; }
-  .ph-step  { font-size: 20px; font-weight: 900; color: rgba(255,255,255,0.5); }
-  .ph-dots  { display: flex; gap: 6px; margin-top: 2px; }
-  .ph-dot   { width: 8px; height: 8px; border-radius: 50%;
-               background: rgba(255,255,255,0.2); transition: background .3s; }
-  .ph-dot.done { background: rgba(255,255,255,0.9); }
-
-  /* 카운트다운 오버레이 */
+  .phase-banner.p0{background:#0D4F2E} .phase-banner.p1{background:#1A3A5C}
+  .phase-banner.p2{background:#4A2308} .phase-banner.p3{background:#3B0764}
+  .phase-banner.p4{background:#0C3040}
+  .ph-left  { display:flex; flex-direction:column; gap:4px; }
+  .ph-arrow { font-size:26px; color:#fff; }
+  .ph-label { font-size:17px; font-weight:800; color:#fff; }
+  .ph-guide { font-size:12px; color:rgba(255,255,255,.7); }
+  .ph-step  { font-size:22px; font-weight:900; color:rgba(255,255,255,.5); }
+  .ph-dots  { display:flex; gap:5px; margin-top:2px; }
+  .ph-dot   { width:8px; height:8px; border-radius:50%;
+               background:rgba(255,255,255,.2); transition:background .3s; }
+  .ph-dot.done { background:rgba(255,255,255,.9); }
   .countdown-overlay {
-    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.55);
-    font-size: 80px; font-weight: 900; color: #fff;
-    z-index: 10;
-    display: none;
+    position:absolute; top:0; left:0; right:0; bottom:0;
+    display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.55);
+    font-size:80px; font-weight:900; color:#fff; z-index:10;
   }
-  .progress-wrap {
-    height: 6px; background: #1E293B; border-radius: 0 0 4px 4px; overflow: hidden;
-  }
-  .progress-bar {
-    height: 100%; width: 0%;
-    background: linear-gradient(90deg, #22C55E, #06B6D4);
-    transition: width .3s;
-  }
-
-  .form-row {
-    background: #1E293B; border: 1px solid #334155;
-    border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;
-  }
-  .form-lbl { font-size: 11px; color: #64748B; margin-bottom: 6px;
-               font-weight: 600; text-transform: uppercase; }
-  .form-ctrl {
-    background: transparent; border: none; outline: none;
-    color: #F1F5F9; font-size: 15px; width: 100%; font-family: inherit;
-  }
-  select.form-ctrl option { background: #1E293B; }
-  .btn-start {
-    background: linear-gradient(135deg, #3B82F6, #06B6D4);
-    color: #fff; border: none; border-radius: 10px;
-    padding: 14px; font-size: 16px; font-weight: 700;
-    width: 100%; cursor: pointer;
-  }
-  .btn-start:disabled { background: #334155; color: #64748B; cursor: not-allowed; }
-  .status-msg { font-size: 13px; color: #94A3B8; text-align: center;
-                padding: 8px 0; min-height: 36px; }
-  .status-msg.ok  { color: #22C55E; font-weight: 700; }
-  .status-msg.err { color: #EF4444; }
+  .prog-wrap { height:8px; background:#1E293B; overflow:hidden; }
+  .prog-bar  { height:100%; width:0%;
+               background:linear-gradient(90deg,#22C55E,#06B6D4); transition:width .3s; }
+  .form-row  { background:#1E293B; border:1px solid #334155;
+               border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .form-lbl  { font-size:11px; color:#64748B; margin-bottom:6px;
+               font-weight:600; text-transform:uppercase; }
+  .form-ctrl { background:transparent; border:none; outline:none;
+               color:#F1F5F9; font-size:15px; width:100%; font-family:inherit; }
+  select.form-ctrl option { background:#1E293B; }
+  .btn-start { background:linear-gradient(135deg,#3B82F6,#06B6D4);
+               color:#fff; border:none; border-radius:10px;
+               padding:14px; font-size:16px; font-weight:700;
+               width:100%; cursor:pointer; margin-top:8px; }
+  .btn-start:disabled { background:#334155; color:#64748B; cursor:not-allowed; }
+  .status-msg { font-size:13px; color:#94A3B8; text-align:center;
+                padding:8px 0; min-height:36px; }
+  .status-msg.ok  { color:#22C55E; font-weight:700; }
+  .status-msg.err { color:#EF4444; }
 </style>
 
 <div class="pg-hd">
   <div>
     <div class="pg-title">얼굴 등록</div>
-    <div class="pg-sub">4방향 자동 촬영 후 등록</div>
+    <div class="pg-sub">5방향 자동 촬영 후 PC에서 동기화</div>
   </div>
   <a href="/checkin" style="font-size:13px;color:#64748B;text-decoration:none;
      border:1px solid #334155;border-radius:6px;padding:5px 12px;">체크인으로</a>
@@ -93,9 +69,6 @@
 
 <div class="px-3 pt-2 pb-5">
 
-  <div id="loadingBox" class="status-msg">⏳ AI 모델 로딩 중…</div>
-
-  <!-- 사원 선택 -->
   <div class="form-row">
     <div class="form-lbl">사원 선택</div>
     <select class="form-ctrl" id="selEmp">
@@ -103,217 +76,156 @@
     </select>
   </div>
 
-  <!-- 관리자 비밀번호 -->
   <div class="form-row">
     <div class="form-lbl">관리자 비밀번호</div>
     <input type="password" class="form-ctrl" id="inPw" placeholder="비밀번호 입력" maxlength="20">
   </div>
 
-  <!-- 단계 배너 + 카메라 -->
+  <!-- 단계 배너 -->
   <div class="phase-banner p0" id="phaseBanner">
-    <div>
+    <div class="ph-left">
       <div style="display:flex;align-items:center;gap:8px">
         <span class="ph-arrow" id="phArrow"></span>
-        <span class="ph-label" id="phLabel">사원 선택 후 시작하세요</span>
+        <span class="ph-label" id="phLabel">사원 선택 후 시작</span>
       </div>
-      <div class="ph-dots" id="phDots">
-        <span class="ph-dot" id="pd0"></span>
-        <span class="ph-dot" id="pd1"></span>
-        <span class="ph-dot" id="pd2"></span>
-        <span class="ph-dot" id="pd3"></span>
+      <span class="ph-guide" id="phGuide"></span>
+      <div class="ph-dots">
+        <span class="ph-dot" id="pd0"></span><span class="ph-dot" id="pd1"></span>
+        <span class="ph-dot" id="pd2"></span><span class="ph-dot" id="pd3"></span>
         <span class="ph-dot" id="pd4"></span>
       </div>
     </div>
-    <span class="ph-step" id="phStep">0 / 4</span>
+    <span class="ph-step" id="phStep">0 / 5</span>
   </div>
 
   <div class="cam-box" id="camBox">
     <video id="vid" autoplay muted playsinline></video>
-    <canvas id="cvs"></canvas>
     <div class="countdown-overlay" id="countdown"></div>
   </div>
 
-  <div class="progress-wrap">
-    <div class="progress-bar" id="progBar"></div>
+  <div class="prog-wrap">
+    <div class="prog-bar" id="progBar"></div>
   </div>
 
-  <div class="status-msg" id="statusMsg" style="margin-top:8px">로딩 중…</div>
+  <div class="status-msg" id="statusMsg">사원을 선택하고 시작 버튼을 누르세요</div>
 
-  <button class="btn-start mt-2" id="btnStart" disabled onclick="startCapture()">
-    📸 4방향 자동 촬영 시작
+  <button class="btn-start" id="btnStart" onclick="startCapture()">
+    📸 5방향 자동 촬영 시작
   </button>
 
 </div>
 
 <script>
-const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
 const PHASES = [
-  { label: '정면을 보세요',   arrow: '',  cls: 'p0' },
-  { label: '오른쪽을 보세요', arrow: '▶', cls: 'p1' },
-  { label: '왼쪽을 보세요',   arrow: '◀', cls: 'p2' },
-  { label: '위를 보세요',     arrow: '▲', cls: 'p3' },
-  { label: '아래를 보세요',   arrow: '▼', cls: 'p4' },
+  {cls:'p0', label:'정면을 보세요',   arrow:'',  guide:'카메라를 정면으로 바라봐 주세요'},
+  {cls:'p1', label:'오른쪽을 보세요', arrow:'▶', guide:'살짝만 오른쪽으로 고개를 틀어주세요'},
+  {cls:'p2', label:'왼쪽을 보세요',   arrow:'◀', guide:'살짝만 왼쪽으로 고개를 틀어주세요'},
+  {cls:'p3', label:'위를 보세요',     arrow:'▲', guide:'살짝만 위로 고개를 들어주세요'},
+  {cls:'p4', label:'아래를 보세요',   arrow:'▼', guide:'살짝만 아래로 고개를 숙여주세요'},
 ];
-let descriptors = [];
 let stream = null;
-let running = false;
 
 function setStatus(msg, cls) {
   const el = document.getElementById('statusMsg');
-  el.textContent = msg;
-  el.className = 'status-msg ' + (cls || '');
+  el.textContent = msg; el.className = 'status-msg ' + (cls||'');
 }
 
-function setPhase(idx) {
-  const p = PHASES[idx];
-  const banner = document.getElementById('phaseBanner');
-  banner.className = 'phase-banner ' + p.cls;
-  document.getElementById('phArrow').textContent = p.arrow;
-  document.getElementById('phLabel').textContent = p.label;
-  document.getElementById('phStep').textContent  = `${idx + 1} / ${PHASES.length}`;
-  for (let i = 0; i < 5; i++) {
-    document.getElementById('pd' + i).className = 'ph-dot' + (i <= idx ? ' done' : '');
+function setPhase(idx, done) {
+  const p = PHASES[Math.min(idx, PHASES.length-1)];
+  document.getElementById('phaseBanner').className = 'phase-banner ' + p.cls;
+  document.getElementById('phArrow').textContent = done ? '✅' : p.arrow;
+  document.getElementById('phLabel').textContent = done ? '등록 완료!' : p.label;
+  document.getElementById('phGuide').textContent = done ? '' : p.guide;
+  document.getElementById('phStep').textContent  = `${Math.min(idx+1, PHASES.length)} / ${PHASES.length}`;
+  document.getElementById('progBar').style.width = ((Math.min(idx+1,PHASES.length)/PHASES.length)*100)+'%';
+  for (let i=0; i<5; i++) {
+    document.getElementById('pd'+i).className = 'ph-dot' + (i<=idx?' done':'');
   }
-  document.getElementById('progBar').style.width = ((idx / PHASES.length) * 100) + '%';
 }
 
 async function countdown(sec) {
   const el = document.getElementById('countdown');
   el.style.display = 'flex';
-  for (let i = sec; i >= 1; i--) {
+  for (let i=sec; i>=1; i--) {
     el.textContent = i;
     await new Promise(r => setTimeout(r, 1000));
   }
   el.style.display = 'none';
 }
 
-async function captureDescriptor() {
+function captureFrame() {
   const vid = document.getElementById('vid');
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const det = await faceapi
-      .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions({ inputSize: 224 }))
-      .withFaceLandmarks(true)
-      .withFaceDescriptor();
-    if (det) return Array.from(det.descriptor);
-    await new Promise(r => setTimeout(r, 500));
-  }
-  return null;
+  const c = document.createElement('canvas');
+  c.width = vid.videoWidth; c.height = vid.videoHeight;
+  const ctx = c.getContext('2d');
+  ctx.translate(c.width, 0); ctx.scale(-1, 1);
+  ctx.drawImage(vid, 0, 0);
+  return c.toDataURL('image/jpeg', 0.85);
 }
 
 async function startCapture() {
-  const empSel = document.getElementById('selEmp');
-  const emp_id = empSel.value.trim();
+  const emp_id = document.getElementById('selEmp').value.trim().toUpperCase();
   const pw     = document.getElementById('inPw').value;
   if (!emp_id) { setStatus('사원을 선택해 주세요.', 'err'); return; }
   if (!pw)     { setStatus('관리자 비밀번호를 입력해 주세요.', 'err'); return; }
 
   document.getElementById('btnStart').disabled = true;
-  running = true;
-  descriptors = [];
 
-  for (let i = 0; i < PHASES.length; i++) {
-    if (!running) break;
+  for (let i=0; i<PHASES.length; i++) {
     setPhase(i);
     setStatus(`${PHASES[i].label} — 3초 후 자동 촬영됩니다`);
     await countdown(3);
-
     setStatus('촬영 중…');
-    const desc = await captureDescriptor();
-    if (!desc) {
-      setStatus(`얼굴을 감지하지 못했습니다. 다시 시도합니다.`, 'err');
-      await new Promise(r => setTimeout(r, 1500));
-      i--;  // 재시도
-      continue;
-    }
-    descriptors.push(desc);
-    setStatus(`✅ ${i + 1}/${PHASES.length} 완료`, 'ok');
-    await new Promise(r => setTimeout(r, 600));
-  }
 
-  if (descriptors.length < PHASES.length) {
-    setStatus('캡처가 완료되지 않았습니다. 다시 시도하세요.', 'err');
-    document.getElementById('btnStart').disabled = false;
-    return;
-  }
+    const img = captureFrame();
+    try {
+      const res = await fetch('/api/register_face_frame', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({emp_id, phase:i, image:img, pw})
+      }).then(r=>r.json());
 
-  // 4개 descriptor 평균
-  const avgDesc = descriptors[0].map((_, j) =>
-    descriptors.reduce((s, d) => s + d[j], 0) / descriptors.length
-  );
-
-  document.getElementById('progBar').style.width = '100%';
-  setStatus('저장 중…');
-
-  const empOpt = empSel.options[empSel.selectedIndex];
-  const name   = empOpt ? (empOpt.dataset.name || empOpt.text) : emp_id;
-  const factory = empOpt ? (empOpt.dataset.factory || '') : '';
-
-  try {
-    const res  = await fetch('/api/save_face_descriptor', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pw, emp_id, name, factory, descriptor: avgDesc }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      setPhase(PHASES.length - 1);
-      setStatus(`🎉 ${name} 얼굴 등록 완료!`, 'ok');
-      document.getElementById('phLabel').textContent = '등록 완료!';
-      document.getElementById('phArrow').textContent = '✅';
-      document.getElementById('phStep').textContent = `${PHASES.length} / ${PHASES.length}`;
-    } else {
-      setStatus('저장 실패: ' + (data.error || '알 수 없는 오류'), 'err');
+      if (!res.ok) {
+        setStatus('오류: ' + (res.msg||'알 수 없는 오류'), 'err');
+        document.getElementById('btnStart').disabled = false;
+        return;
+      }
+    } catch(e) {
+      setStatus('네트워크 오류', 'err');
       document.getElementById('btnStart').disabled = false;
+      return;
     }
-  } catch (e) {
-    setStatus('네트워크 오류', 'err');
-    document.getElementById('btnStart').disabled = false;
+    setStatus(`✅ ${i+1}/${PHASES.length} 완료`, 'ok');
+    await new Promise(r => setTimeout(r, 400));
   }
+
+  setPhase(PHASES.length-1, true);
+  const name = document.getElementById('selEmp').options[document.getElementById('selEmp').selectedIndex]?.dataset?.name || emp_id;
+  setStatus(`🎉 ${name} 촬영 완료! PC에서 새로고침하면 적용됩니다.`, 'ok');
 }
 
 async function loadEmpList() {
   try {
-    const res  = await fetch('/api/employees');
-    const emps = await res.json();
+    const emps = await fetch('/api/employees').then(r=>r.json());
     const sel  = document.getElementById('selEmp');
     emps.forEach(e => {
       const opt = document.createElement('option');
-      opt.value           = e.emp_id;
-      opt.dataset.name    = e.name;
-      opt.dataset.factory = e.factory || '';
-      opt.text = `[${e.emp_id}] ${e.name}`;
+      opt.value = e.emp_id; opt.dataset.name = e.name;
+      opt.text  = `[${e.emp_id}] ${e.name}`;
       sel.appendChild(opt);
     });
-  } catch (e) {
-    const sel = document.getElementById('selEmp');
-    sel.outerHTML = '<input class="form-ctrl" id="selEmp" placeholder="사원번호 직접 입력 (예: M001)">';
+  } catch(e) {
+    document.getElementById('selEmp').outerHTML =
+      '<input class="form-ctrl" id="selEmp" placeholder="사원번호 직접 입력 (예: M001)">';
   }
 }
 
-async function startCam() {
+(async () => {
+  await loadEmpList();
   stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'user', width: { ideal: 640 } }, audio: false,
+    video:{facingMode:'user', width:{ideal:640}}, audio:false
   });
   document.getElementById('vid').srcObject = stream;
-}
-
-(async () => {
-  await loadEmpList().catch(() => {});
-  await startCam();
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js';
-    s.onload = resolve; s.onerror = reject;
-    document.head.appendChild(s);
-  });
-  await Promise.all([
-    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-    faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
-    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-  ]);
-  document.getElementById('loadingBox').style.display = 'none';
-  document.getElementById('btnStart').disabled = false;
-  setStatus('사원 선택 후 촬영 시작 버튼을 누르세요');
 })();
 </script>
 
