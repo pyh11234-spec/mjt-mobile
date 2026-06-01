@@ -64,7 +64,8 @@ _login_lock = threading.Lock()
 
 # 인증 면제 경로 (로그인/정적 자산 등)
 _AUTH_EXEMPT_PREFIX = ('/login', '/logout', '/static', '/api/health',
-                       '/favicon.ico')
+                       '/favicon.ico', '/api/cv_check',
+                       '/api/face_recognize', '/checkin', '/register_face')
 
 
 def _ip():
