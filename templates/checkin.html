@@ -285,18 +285,18 @@ async function doCheckin(action) {
 // ── 서버사이드 LBPH 인식 루프 ────────────────────────────────────
 function captureFrame() {
   const vid = document.getElementById('vid');
-  if (!vid.videoWidth) return null;
+  const w = vid.videoWidth  || vid.clientWidth  || 320;
+  const h = vid.videoHeight || vid.clientHeight || 240;
   const c = document.createElement('canvas');
-  c.width = Math.min(vid.videoWidth, 320);
-  c.height = Math.min(vid.videoHeight, 240);
+  c.width = Math.min(w, 320); c.height = Math.min(h, 240);
   c.getContext('2d').drawImage(vid, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', 0.75);
 }
 
 async function detectOnce() {
   if (!scanning) return;
+  setStatus('분석 중…', 'scan');
   const img = captureFrame();
-  if (!img) { scheduleDetect(); return; }
   try {
     const ctrl = new AbortController();
     const tid  = setTimeout(() => ctrl.abort(), 5000);
@@ -363,7 +363,12 @@ async function init() {
   }
   const vid = document.getElementById('vid');
   vid.srcObject = cameraStream;
-  await new Promise(r => vid.onloadedmetadata = r);
+  await vid.play().catch(() => {});
+  await new Promise(r => {
+    if (vid.readyState >= 1) { r(); return; }
+    vid.onloadedmetadata = r;
+    setTimeout(r, 2000);  // 2초 후 강제 진행
+  });
   document.getElementById('loadingEl').style.display = 'none';
   setStatus('얼굴을 카메라에 대세요', 'ready');
   document.getElementById('loadTxt').textContent = '서버 인식 모드 (LBPH)';
