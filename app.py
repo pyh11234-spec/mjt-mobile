@@ -1507,6 +1507,38 @@ def save_face_descriptor(emp_id, name, factory, descriptor):
         _cache.pop('face_desc', None)
 
 
+def delete_face_descriptor(emp_id: str) -> bool:
+    """Google Sheets 얼굴인식 시트에서 해당 사번 행 삭제."""
+    try:
+        sh = _open_sh()
+        ws = _ensure_face_sheet(sh)
+        rows = ws.get_all_values()
+        for i, r in enumerate(rows[1:], start=2):
+            if r and r[0].strip().upper() == emp_id.upper():
+                ws.delete_rows(i)
+                with _lock:
+                    _cache.pop('face_desc', None)
+                return True
+    except Exception:
+        pass
+    return False
+
+
+@app.route('/api/delete_face_descriptor', methods=['POST'])
+def api_delete_face_descriptor():
+    """데스크탑에서 얼굴 삭제 시 Sheets descriptor도 같이 삭제."""
+    _PW = os.environ.get('ADMIN_PW', 'mj3838scs')
+    body   = request.get_json(silent=True) or {}
+    emp_id = body.get('emp_id', '').strip().upper()
+    pw     = body.get('pw', '')
+    if not emp_id:
+        return jsonify({'ok': False, 'msg': '사번 누락'})
+    if pw != _PW:
+        return jsonify({'ok': False, 'msg': '비밀번호 오류'})
+    ok = delete_face_descriptor(emp_id)
+    return jsonify({'ok': True, 'deleted': ok})
+
+
 @app.route('/checkin')
 def checkin():
     return render_template('checkin.html')
