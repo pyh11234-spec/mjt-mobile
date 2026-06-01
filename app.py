@@ -52,7 +52,7 @@ app.config.update(
 app.permanent_session_lifetime = timedelta(days=30)
 
 # 식당 메뉴 등록 비밀번호
-MENU_PW = os.environ.get('MENU_PW', '3838')
+MENU_PW = os.environ.get('MENU_PW', 'mj3838scs')
 
 # ── 모바일 접속 인증 (v1.2.2 추가) ────────────────────────────
 # 회사 공통 코드 (분기마다 갱신 권장). Render Environment 에 등록.
@@ -1526,7 +1526,7 @@ def api_face_descriptors():
 def api_register_face_frame():
     """모바일 얼굴 등록 — 단계별 이미지 저장 (face_pending 테이블)."""
     import base64 as _b64
-    _PW = os.environ.get('ADMIN_PW', '3838')
+    _PW = os.environ.get('ADMIN_PW', 'mj3838scs')
     body    = request.get_json(silent=True) or {}
     emp_id  = body.get('emp_id', '').strip().upper()
     phase   = body.get('phase', 0)
