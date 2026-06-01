@@ -132,7 +132,7 @@
     }
     .toast.show { opacity: 1; }
     .toast.ok   { border-color: #22C55E; color: #22C55E; }
-    .toast.err  { border-color: #EF4444; color: #EF4444; }
+    .toast.err  { border-color: #EF4444; color: #EF4444; white-space: pre-line; text-align: center; line-height: 1.6; padding: 14px 20px; }
 
     /* Loading overlay */
     .loading {
@@ -196,11 +196,13 @@
 const DETECT_INTERVAL = 800;   // ms
 const COOLDOWN_S      = 40;
 
-let lastRecognized = {};
-let currentEmp     = null;
-let scanning       = false;
-let detectTimer    = null;
-let cameraStream   = null;
+let lastRecognized  = {};
+let currentEmp      = null;
+let scanning        = false;
+let detectTimer     = null;
+let cameraStream    = null;
+let failCount       = 0;      // 연속 미인식 횟수
+let registerNudged  = false;  // 등록 안내 표시 여부
 
 function stopCameraAndExit() {
   scanning = false;
@@ -303,6 +305,7 @@ async function detectOnce() {
     });
     const data = await res.json();
     if (data.ok && data.emp_id) {
+      failCount = 0; registerNudged = false;
       const now  = Date.now();
       const last = lastRecognized[data.emp_id] || 0;
       if (now - last < COOLDOWN_S * 1000) {
@@ -314,9 +317,18 @@ async function detectOnce() {
         return;
       }
     } else if (data.face === false) {
+      failCount = 0;
       setStatus('얼굴을 카메라에 가까이 대세요', 'scan');
     } else {
+      // 얼굴은 감지됐지만 미등록
+      failCount++;
       setStatus('등록된 얼굴과 일치하지 않습니다', 'scan');
+      if (failCount >= 4 && !registerNudged) {
+        registerNudged = true;
+        showToast(
+          '얼굴이 등록되지 않은 사원입니다.\n우측 상단 [얼굴 등록] 버튼에서 등록해주세요.',
+          'err', 6000);
+      }
     }
   } catch (e) { /* 네트워크 일시 오류 무시 */ }
   scheduleDetect();
