@@ -115,6 +115,22 @@
     }
     .footer .gold { color: #FCD34D; font-weight: 700; }
     .footer .v { color: #64748B; }
+    input[name="phone4"] {
+      letter-spacing: 0.2em;
+      font-weight: 700;
+      font-size: 18px;
+      text-align: center;
+    }
+    .step-badges {
+      display: flex; gap: 6px; margin-bottom: 16px;
+    }
+    .step-badge {
+      font-size: 10px; font-weight: 700;
+      padding: 3px 8px; border-radius: 20px;
+      background: #1E293B; color: #64748B;
+      border: 1px solid #334155;
+    }
+    .step-badge.done { background: #0D4F2E; color: #4ADE80; border-color: #166534; }
   </style>
 </head>
 <body>
@@ -127,30 +143,45 @@
 
 <div class="card">
   <h2>로그인</h2>
-  <p class="help">사번과 회사 공통 코드를 입력하세요. (30일간 자동 유지)</p>
+  <p class="help">3단계 인증 후 30일간 자동 유지됩니다.</p>
+
+  <div class="step-badges">
+    <span class="step-badge done">① 사번</span>
+    <span class="step-badge done">② 휴대폰 끝 4자리</span>
+    <span class="step-badge done">③ 회사 코드</span>
+  </div>
 
   {% if err == 'wrong_code' %}
   <div class="err">⚠ 회사 코드가 일치하지 않습니다.</div>
   {% elif err == 'not_emp' %}
-  <div class="err">⚠ 등록되지 않은 사번이거나 사용 정지된 사번입니다.<br>
-       (퇴사·휴직 시 자동 차단됩니다)</div>
+  <div class="err">⚠ 등록되지 않은 사번이거나 사용 정지된 사번입니다.</div>
+  {% elif err == 'wrong_phone' %}
+  <div class="err">⚠ 휴대폰 끝 4자리가 일치하지 않습니다.</div>
+  {% elif err == 'no_phone' %}
+  <div class="err">⚠ 전화번호가 등록되지 않은 사번입니다.<br>
+       관리자(M008)에게 문의하세요.</div>
   {% elif err == 'blocked' %}
   <div class="err">⚠ 5회 연속 실패로 30분간 차단되었습니다.<br>
        잠시 후 다시 시도해 주세요.</div>
   {% elif err == 'expired' %}
-  <div class="err">⚠ 세션이 만료되었거나 계정이 변경되었습니다.<br>
-       다시 로그인해 주세요.</div>
+  <div class="err">⚠ 세션이 만료되었습니다. 다시 로그인해 주세요.</div>
   {% endif %}
 
   <form method="post">
     <input type="hidden" name="next" value="{{ next or '/' }}">
 
-    <label>사번 (예: M008, S015)</label>
+    <label>① 사번 (예: M008, S015)</label>
     <input name="emp_id" value="{{ emp_id or '' }}"
            required maxlength="20" autofocus
            autocomplete="username" inputmode="text">
 
-    <label>회사 공통 코드</label>
+    <label>② 휴대폰 끝 4자리</label>
+    <input name="phone4" type="tel" required maxlength="4"
+           inputmode="numeric" pattern="[0-9]{4}"
+           placeholder="1234"
+           autocomplete="off">
+
+    <label>③ 회사 공통 코드</label>
     <input name="code" type="password" required
            autocomplete="current-password">
 
@@ -160,7 +191,7 @@
 
 <div class="footer">
   © MJT SmartFactory  ·  Powered by <span class="gold">P.Y.H</span><br>
-  <span class="v">v{{ '1.2.2' }}</span>
+  <span class="v">v{{ version or '1.4.0' }}</span>
 </div>
 
 </body>

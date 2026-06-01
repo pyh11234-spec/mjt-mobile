@@ -94,35 +94,32 @@ def _clear_failure(ip):
 
 
 def _verify_emp_active(emp_id: str):
-    """사번이 employees.active=TRUE 여야 통과. 퇴사자 자동 차단."""
+    """사번이 employees.active=TRUE 여야 통과. 퇴사자 자동 차단.
+    반환: dict(emp_id, name, dept, factory, phone) 또는 None."""
     if not emp_id:
         return None
     emp_id = emp_id.strip().upper()
-    # Supabase 우선
     try:
         import db_pg
         if db_pg.is_available():
             r = db_pg.query_one(
-                "SELECT emp_id, name, dept, factory, active FROM employees "
+                "SELECT emp_id, name, dept, factory, active, phone FROM employees "
                 "WHERE UPPER(emp_id) = %s LIMIT 1", (emp_id,))
             if r and r.get('active'):
                 return {'emp_id': r['emp_id'], 'name': r['name'],
-                        'dept': r['dept'], 'factory': r['factory']}
+                        'dept': r['dept'], 'factory': r['factory'],
+                        'phone': r.get('phone') or ''}
             return None
     except Exception:
         pass
-    # Fallback: Google Sheets
-    try:
-        for e in get_employees():
-            eid = str(e.get('사원번호','')).strip().upper()
-            if eid == emp_id and str(e.get('사용여부','Y')).upper() == 'Y':
-                return {'emp_id': eid,
-                        'name': e.get('성명',''),
-                        'dept': e.get('부서명',''),
-                        'factory': 'MJ 1공장' if eid.startswith('M') else 'SCS 2공장'}
-    except Exception:
-        pass
     return None
+
+
+def _phone_last4(phone: str) -> str:
+    """전화번호에서 숫자만 추출 후 끝 4자리 반환."""
+    import re as _re
+    digits = _re.sub(r'\D', '', phone or '')
+    return digits[-4:] if len(digits) >= 4 else ''
 
 
 def _log_access(emp_id, ip, path, success=True):
@@ -190,29 +187,45 @@ def login():
         # 이미 로그인된 상태면 다음 페이지로
         if session.get('emp_id') and not err:
             return redirect(nxt)
-        return render_template('login.html', err=err, next=nxt)
+        from _version import VERSION
+        return render_template('login.html', err=err, next=nxt, version=VERSION)
 
     ip = _ip()
     if _is_blocked(ip):
         return render_template('login.html', err='blocked', next='/')
 
     emp_id = request.form.get('emp_id', '').strip().upper()
+    phone4 = request.form.get('phone4', '').strip()
     code   = request.form.get('code', '').strip()
     nxt    = request.form.get('next', '/') or '/'
 
-    # 회사 코드 검증
+    # ① 회사 공통 코드 검증
     if not MOBILE_AUTH_CODE or code != MOBILE_AUTH_CODE:
         _record_failure(ip)
         _log_access(emp_id or '?', ip, '/login', success=False)
         return render_template('login.html', err='wrong_code',
                                next=nxt, emp_id=emp_id)
 
-    # 사번 + active 검증
+    # ② 사번 + active 검증
     emp = _verify_emp_active(emp_id)
     if not emp:
         _record_failure(ip)
         _log_access(emp_id, ip, '/login', success=False)
         return render_template('login.html', err='not_emp',
+                               next=nxt, emp_id=emp_id)
+
+    # ③ 휴대폰 끝 4자리 검증
+    db_last4 = _phone_last4(emp.get('phone', ''))
+    if not db_last4:
+        # DB에 전화번호 없는 사원 → 관리자에게 문의 안내
+        _record_failure(ip)
+        _log_access(emp_id, ip, '/login', success=False)
+        return render_template('login.html', err='no_phone',
+                               next=nxt, emp_id=emp_id)
+    if phone4 != db_last4:
+        _record_failure(ip)
+        _log_access(emp_id, ip, '/login', success=False)
+        return render_template('login.html', err='wrong_phone',
                                next=nxt, emp_id=emp_id)
 
     # 통과 → 세션 발급
