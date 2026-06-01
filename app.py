@@ -1554,6 +1554,83 @@ def api_face_descriptors():
     return jsonify(get_face_descriptors())
 
 
+# ── 서버사이드 LBPH 얼굴 인식 ──────────────────────────────────────
+import threading as _threading
+_face_lock = _threading.Lock()
+_face_recognizer = None   # LBPH 모델 (Supabase에서 로드)
+_face_labels: dict = {}   # int → emp_id
+_face_loaded_at = 0.0
+
+def _load_lbph_model():
+    """Supabase face_model 테이블에서 LBPH 모델 로드. 5분 캐시."""
+    global _face_recognizer, _face_labels, _face_loaded_at
+    import time as _time
+    if _time.time() - _face_loaded_at < 300 and _face_recognizer is not None:
+        return _face_recognizer, _face_labels
+    try:
+        import cv2, tempfile, os as _os, json as _json
+        row = db_pg.query_one(
+            "SELECT model_data, labels_json FROM face_model WHERE id = 1")
+        if not row:
+            return None, {}
+        with tempfile.NamedTemporaryFile(suffix='.yml', delete=False) as f:
+            f.write(bytes(row['model_data'])); tmp = f.name
+        rec = cv2.face.LBPHFaceRecognizer_create()
+        rec.read(tmp)
+        _os.unlink(tmp)
+        labels = {int(k): v for k, v in _json.loads(row['labels_json']).items()}
+        with _face_lock:
+            _face_recognizer = rec
+            _face_labels = labels
+            _face_loaded_at = _time.time()
+        return rec, labels
+    except Exception as e:
+        return None, {}
+
+
+@app.route('/api/face_recognize', methods=['POST'])
+def api_face_recognize():
+    """모바일 카메라 프레임 → 서버에서 LBPH 인식 → emp_id 반환."""
+    import base64 as _b64
+    body  = request.get_json(silent=True) or {}
+    img_b64 = body.get('image', '')
+    if not img_b64:
+        return jsonify({'ok': False, 'msg': '이미지 없음'})
+    try:
+        import cv2, numpy as _np
+        img_bytes = _b64.b64decode(img_b64.split(',')[-1])
+        arr = _np.frombuffer(img_bytes, dtype=_np.uint8)
+        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if frame is None:
+            return jsonify({'ok': False, 'msg': '이미지 디코딩 실패'})
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Haar cascade 얼굴 검출
+        haar_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        cascade = cv2.CascadeClassifier(haar_path)
+        faces = cascade.detectMultiScale(gray, 1.3, 5, minSize=(60, 60))
+        if not len(faces):
+            return jsonify({'ok': False, 'face': False})
+        rec, labels = _load_lbph_model()
+        if rec is None:
+            return jsonify({'ok': False, 'msg': '모델 없음'})
+        x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+        roi = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
+        label, conf = rec.predict(roi)
+        if conf > 110:
+            return jsonify({'ok': False, 'face': True, 'conf': float(conf)})
+        emp_id = labels.get(label)
+        if not emp_id:
+            return jsonify({'ok': False, 'face': True})
+        emp = _verify_emp_active(emp_id)
+        if not emp:
+            return jsonify({'ok': False, 'face': True, 'msg': '비활성 사원'})
+        return jsonify({'ok': True, 'emp_id': emp_id,
+                        'name': emp['name'], 'dept': emp.get('dept', ''),
+                        'conf': float(conf)})
+    except Exception as e:
+        return jsonify({'ok': False, 'msg': str(e)[:80]})
+
+
 @app.route('/api/register_face_frame', methods=['POST'])
 def api_register_face_frame():
     """모바일 얼굴 등록 — 단계별 이미지 저장 (face_pending 테이블)."""

@@ -192,17 +192,15 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
-const DETECT_INTERVAL = 600;   // ms
-const MATCH_THRESH    = 0.52;  // euclidean distance threshold
-const COOLDOWN_S      = 40;    // seconds before same person can re-trigger card
+// ── 서버사이드 LBPH 인식 (face-api.js 제거) ─────────────────────
+const DETECT_INTERVAL = 800;   // ms
+const COOLDOWN_S      = 40;
 
-let labeledDescriptors = [];
-let lastRecognized     = {};  // emp_id → timestamp
-let currentEmp         = null;
-let scanning           = false;
-let detectTimer        = null;
-let cameraStream       = null;   // 페이지 떠날 때 정리용
+let lastRecognized = {};
+let currentEmp     = null;
+let scanning       = false;
+let detectTimer    = null;
+let cameraStream   = null;
 
 function stopCameraAndExit() {
   scanning = false;
@@ -282,74 +280,45 @@ async function doCheckin(action) {
   scheduleDetect();
 }
 
-// ── Face detection loop ──────────────────────────────────────────
-function euclidean(a, b) {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += (a[i] - b[i]) ** 2;
-  return Math.sqrt(s);
-}
-
-function bestMatch(descriptor) {
-  let best = null, bestDist = Infinity;
-  for (const ld of labeledDescriptors) {
-    const d = euclidean(descriptor, ld.descriptor);
-    if (d < bestDist) { bestDist = d; best = ld; }
-  }
-  return bestDist < MATCH_THRESH ? { ...best, dist: bestDist } : null;
+// ── 서버사이드 LBPH 인식 루프 ────────────────────────────────────
+function captureFrame() {
+  const vid = document.getElementById('vid');
+  if (!vid.videoWidth) return null;
+  const c = document.createElement('canvas');
+  c.width = Math.min(vid.videoWidth, 320);
+  c.height = Math.min(vid.videoHeight, 240);
+  c.getContext('2d').drawImage(vid, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.75);
 }
 
 async function detectOnce() {
   if (!scanning) return;
-  const vid = document.getElementById('vid');
-  if (!vid.videoWidth) { scheduleDetect(); return; }
-
-  const cvs = document.getElementById('cvs');
-  cvs.width  = vid.videoWidth;
-  cvs.height = vid.videoHeight;
-  const ctx  = cvs.getContext('2d');
-  ctx.clearRect(0, 0, cvs.width, cvs.height);
-
+  const img = captureFrame();
+  if (!img) { scheduleDetect(); return; }
   try {
-    const detections = await faceapi
-      .detectAllFaces(vid, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
-      .withFaceLandmarks(true)
-      .withFaceDescriptors();
-
-    if (detections.length === 0) {
-      setStatus('얼굴을 카메라에 가까이 대세요', 'scan');
-      scheduleDetect(); return;
-    }
-
-    const dims = { width: vid.videoWidth, height: vid.videoHeight };
-    faceapi.matchDimensions(cvs, dims);
-    const resized = faceapi.resizeResults(detections, dims);
-
-    resized.forEach(d => {
-      const box = d.detection.box;
-      ctx.strokeStyle = '#22C55E';
-      ctx.lineWidth   = 2;
-      ctx.strokeRect(box.x, box.y, box.width, box.height);
+    const res  = await fetch('/api/face_recognize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: img }),
     });
-
-    for (const det of detections) {
-      if (!scanning) break;
-      const match = labeledDescriptors.length ? bestMatch(Array.from(det.descriptor)) : null;
-      if (!match) { setStatus('등록된 얼굴과 일치하지 않습니다', 'scan'); continue; }
-
+    const data = await res.json();
+    if (data.ok && data.emp_id) {
       const now  = Date.now();
-      const last = lastRecognized[match.emp_id] || 0;
+      const last = lastRecognized[data.emp_id] || 0;
       if (now - last < COOLDOWN_S * 1000) {
-        setStatus(`${match.name} – 쿨다운 중 (${Math.ceil((COOLDOWN_S * 1000 - (now - last)) / 1000)}초)`, 'scan');
-        continue;
+        const rem = Math.ceil((COOLDOWN_S * 1000 - (now - last)) / 1000);
+        setStatus(`${data.name} – 쿨다운 중 (${rem}초)`, 'scan');
+      } else {
+        currentEmp = data;
+        showCard(data);
+        return;
       }
-
-      currentEmp = match;
-      showCard(match);
-      return;
+    } else if (data.face === false) {
+      setStatus('얼굴을 카메라에 가까이 대세요', 'scan');
+    } else {
+      setStatus('등록된 얼굴과 일치하지 않습니다', 'scan');
     }
-  } catch (e) {
-    console.error('detect error:', e);
-  }
+  } catch (e) { /* 네트워크 일시 오류 무시 */ }
   scheduleDetect();
 }
 
@@ -360,39 +329,8 @@ function scheduleDetect() {
 
 // ── Init ────────────────────────────────────────────────────────
 async function init() {
-  // Load face-api.js
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js';
-    s.onload  = resolve;
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-
-  setStatus('모델 로딩 중…', 'load');
-  document.getElementById('loadProg').textContent = '얼굴 감지 모델…';
-
-  await Promise.all([
-    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-    faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
-    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-  ]);
-
-  document.getElementById('loadProg').textContent = '얼굴 데이터 로딩…';
-
-  // Load descriptors
-  try {
-    const res  = await fetch('/api/face_descriptors');
-    const data = await res.json();
-    labeledDescriptors = data;
-    document.getElementById('loadTxt').textContent =
-      `${data.length}명 얼굴 데이터 로드 완료`;
-  } catch (e) {
-    document.getElementById('loadTxt').textContent = '얼굴 데이터 로드 실패';
-  }
-
-  // Camera
-  document.getElementById('loadProg').textContent = '카메라 시작…';
+  setStatus('카메라 시작 중…', 'load');
+  document.getElementById('loadProg').textContent = '카메라 권한 요청…';
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
@@ -405,13 +343,12 @@ async function init() {
     document.getElementById('statusMsg').textContent = '카메라 없음';
     return;
   }
-
   const vid = document.getElementById('vid');
   vid.srcObject = cameraStream;
   await new Promise(r => vid.onloadedmetadata = r);
-
   document.getElementById('loadingEl').style.display = 'none';
   setStatus('얼굴을 카메라에 대세요', 'ready');
+  document.getElementById('loadTxt').textContent = '서버 인식 모드 (LBPH)';
   scanning = true;
   scheduleDetect();
 }
