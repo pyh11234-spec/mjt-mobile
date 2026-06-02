@@ -65,7 +65,7 @@ _login_lock = threading.Lock()
 # 인증 면제 경로 (로그인/정적 자산 등)
 _AUTH_EXEMPT_PREFIX = ('/login', '/logout', '/static', '/api/health',
                        '/favicon.ico', '/api/cv_check', '/api/face_cache_reset',
-                       '/api/face_recognize', '/checkin', '/register_face')
+                       '/api/face_recognize', '/checkin')
 
 
 def _ip():
@@ -1547,7 +1547,9 @@ def checkin():
 
 @app.route('/register_face')
 def register_face():
-    return render_template('register_face.html')
+    # 얼굴 등록은 식당 PC 전담으로 일원화 — 모바일 등록 비활성
+    return render_template('error.html',
+        error='얼굴 등록은 식당 PC에서만 가능합니다.\n식당 관리 PC에서 등록해 주세요.')
 
 
 @app.route('/api/face_descriptors')
