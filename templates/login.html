@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#0F172A">
+  <meta name="theme-color" content="#F5F2EC">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>MJT SmartFactory 로그인</title>
   <link rel="manifest" href="/static/manifest.json">
@@ -12,8 +12,8 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: linear-gradient(135deg, #0B1120 0%, #1E293B 100%);
-      color: #F1F5F9;
+      background: #F5F2EC;
+      color: #1A1A1A;
       font-family: 'Noto Sans KR', '맑은 고딕', sans-serif;
       min-height: 100vh;
       display: flex; flex-direction: column;
@@ -27,58 +27,58 @@
     .logo {
       width: 64px; height: 64px;
       margin: 0 auto 14px;
-      background: linear-gradient(135deg, #FCD34D 0%, #F59E0B 100%);
+      background: linear-gradient(135deg, #C9A227 0%, #A8861F 100%);
       border-radius: 16px;
       display: flex; align-items: center; justify-content: center;
-      font-weight: 800; font-size: 22px; color: #0B1120;
-      box-shadow: 0 4px 16px rgba(252,211,77,0.3);
+      font-weight: 800; font-size: 22px; color: #1A1A1A;
+      box-shadow: 0 4px 16px rgba(201,162,39,0.3);
     }
     .brand h1 {
-      font-size: 22px; font-weight: 800; color: #FCD34D;
+      font-size: 22px; font-weight: 800; color: #1A1A1A;
       letter-spacing: 0.04em;
     }
     .brand .sub {
-      font-size: 11px; color: #64748B;
+      font-size: 11px; color: #9CA3AF;
       margin-top: 4px; letter-spacing: 0.06em;
     }
     .card {
       width: 100%; max-width: 360px;
-      background: rgba(30, 41, 59, 0.7);
-      backdrop-filter: blur(10px);
-      border: 1px solid #334155;
-      border-top: 2px solid #FCD34D;
+      background: #FFFFFF;
+      border: 1px solid #E5E0D8;
+      border-top: 3px solid #C9A227;
       border-radius: 16px;
       padding: 28px 24px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      box-shadow: 0 10px 32px rgba(60,50,30,0.15);
     }
     .card h2 {
-      font-size: 15px; font-weight: 700; color: #F1F5F9;
+      font-size: 15px; font-weight: 700; color: #1A1A1A;
       margin-bottom: 6px;
     }
     .card p.help {
-      font-size: 11px; color: #64748B;
+      font-size: 11px; color: #9CA3AF;
       margin-bottom: 18px;
     }
     label {
       display: block;
-      font-size: 11px; color: #94A3B8;
+      font-size: 11px; color: #6B7280;
       font-weight: 600;
       margin-bottom: 5px;
       letter-spacing: 0.03em;
     }
     input {
       width: 100%; padding: 12px 14px;
-      background: #0B1120;
-      border: 1px solid #334155;
+      background: #FFFFFF;
+      border: 1px solid #D4CFC6;
+      border-bottom: 2px solid #D4CFC6;
       border-radius: 8px;
-      color: #F1F5F9;
+      color: #1A1A1A;
       font-size: 15px;
       margin-bottom: 14px;
       outline: none;
       font-family: inherit;
       transition: border-color 0.15s;
     }
-    input:focus { border-color: #FCD34D; }
+    input:focus { border-color: #C9A227; border-bottom-color: #C9A227; }
     input[name="emp_id"] {
       text-transform: uppercase;
       letter-spacing: 0.05em;
@@ -86,8 +86,8 @@
     }
     button {
       width: 100%; padding: 13px;
-      background: linear-gradient(135deg, #FCD34D 0%, #F59E0B 100%);
-      color: #0B1120;
+      background: linear-gradient(135deg, #C9A227 0%, #A8861F 100%);
+      color: #1A1A1A;
       border: none; border-radius: 8px;
       font-size: 15px; font-weight: 800;
       cursor: pointer;
@@ -97,9 +97,9 @@
     }
     button:active { transform: translateY(1px); }
     .err {
-      background: rgba(239, 68, 68, 0.1);
-      border: 1px solid #EF4444;
-      color: #FCA5A5;
+      background: #FEE2E2;
+      border: 1px solid #DC2626;
+      color: #B91C1C;
       padding: 10px 12px;
       border-radius: 8px;
       font-size: 12px;
@@ -110,11 +110,11 @@
       margin-top: 28px;
       text-align: center;
       font-size: 10px;
-      color: #475569;
+      color: #9CA3AF;
       letter-spacing: 0.06em;
     }
-    .footer .gold { color: #FCD34D; font-weight: 700; }
-    .footer .v { color: #64748B; }
+    .footer .gold { color: #C9A227; font-weight: 700; }
+    .footer .v { color: #9CA3AF; }
     input[name="phone4"] {
       letter-spacing: 0.2em;
       font-weight: 700;
@@ -127,10 +127,10 @@
     .step-badge {
       font-size: 10px; font-weight: 700;
       padding: 3px 8px; border-radius: 20px;
-      background: #1E293B; color: #64748B;
-      border: 1px solid #334155;
+      background: #EDEAE3; color: #9CA3AF;
+      border: 1px solid #D4CFC6;
     }
-    .step-badge.done { background: #0D4F2E; color: #4ADE80; border-color: #166534; }
+    .step-badge.done { background: #DCFCE7; color: #16A34A; border-color: #16A34A; }
   </style>
 </head>
 <body>
