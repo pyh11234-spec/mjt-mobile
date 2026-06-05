@@ -669,10 +669,11 @@ def index():
         guests     = meal['외부손님']
         today_menu = get_today_menu(ds)
 
-        # 삼겹살데이 — 다가오는 날짜 + 내 참석 상태
+        # 삼겹살데이 — 다가오는 날짜 + 내 참석 상태 + 참석 집계
         samgyup_dates = get_samgyup_dates()
         my_samgyup    = get_my_samgyup(session.get('emp_id', ''))
         samgyup_next  = samgyup_dates[0] if samgyup_dates else None
+        samgyup_sum   = get_samgyup_summary(samgyup_next['date']) if samgyup_next else None
 
         return render_template('index.html',
             today   = today.strftime('%Y년 %m월 %d일'),
@@ -689,6 +690,7 @@ def index():
             n_guest      = len(guests),
             samgyup_next = samgyup_next,
             my_samgyup   = my_samgyup,
+            samgyup_sum  = samgyup_sum,
             updated = datetime.now().strftime('%H:%M'),
         )
     except Exception as e:
@@ -1387,6 +1389,25 @@ def get_my_samgyup(emp_id):
         return {}
 
 
+def get_samgyup_summary(ds):
+    """해당 삼겹살데이 참석 집계 {n_attend, n_absent, names}."""
+    try:
+        sh = _open_sh()
+        ws = _ensure_samgyup_sheet(sh)
+        n_yes = n_no = 0
+        names = []
+        for r in ws.get_all_values()[1:]:
+            if len(r) >= 5 and r[0].strip() == ds:
+                if r[4].strip() == '참석':
+                    n_yes += 1
+                    names.append(r[2].strip())
+                elif r[4].strip() == '불참':
+                    n_no += 1
+        return {'n_attend': n_yes, 'n_absent': n_no, 'names': names}
+    except Exception:
+        return {'n_attend': 0, 'n_absent': 0, 'names': []}
+
+
 @app.route('/api/samgyup_attend', methods=['POST'])
 def api_samgyup_attend():
     body   = request.get_json(silent=True) or {}
@@ -1409,6 +1430,8 @@ def api_samgyup_attend():
                 return jsonify({'ok': True, 'attend': attend})
         ws.append_row([ds, emp_id, emp.get('성명', ''), emp.get('부서명', ''),
                        attend, now_s], value_input_option='USER_ENTERED')
+        with _lock:
+            _cache.pop('samgyup_dates', None)
         return jsonify({'ok': True, 'attend': attend})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
