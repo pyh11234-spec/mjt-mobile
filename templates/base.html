@@ -138,8 +138,28 @@
       border: 1px solid var(--border);
       border-radius: 14px;
       overflow: hidden;
-      box-shadow: var(--shadow);
+      box-shadow: 0 3px 12px rgba(60,50,30,0.09);
+      transition: transform .2s cubic-bezier(.2,.7,.3,1),
+                  box-shadow .2s ease, border-color .2s ease;
     }
+    .c-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 14px 32px rgba(60,50,30,0.20);
+      border-color: var(--border2);
+    }
+    /* 클릭 진입 카드 — 누를 때 살짝 눌림 */
+    a.c-card:active { transform: translateY(-1px) scale(0.997); }
+
+    /* 다크 진입 카드(체크인 등) — 어두운 그림자로 떠오름 */
+    .entry-hero {
+      transition: transform .2s cubic-bezier(.2,.7,.3,1), box-shadow .2s ease;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+    }
+    .entry-hero:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 16px 38px rgba(0,0,0,0.42);
+    }
+    .entry-hero:active { transform: translateY(-1px) scale(0.997); }
     .c-card-hd {
       padding: 12px 16px;
       border-bottom: 1px solid var(--border);
