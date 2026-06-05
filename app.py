@@ -669,6 +669,11 @@ def index():
         guests     = meal['외부손님']
         today_menu = get_today_menu(ds)
 
+        # 삼겹살데이 — 다가오는 날짜 + 내 참석 상태
+        samgyup_dates = get_samgyup_dates()
+        my_samgyup    = get_my_samgyup(session.get('emp_id', ''))
+        samgyup_next  = samgyup_dates[0] if samgyup_dates else None
+
         return render_template('index.html',
             today   = today.strftime('%Y년 %m월 %d일'),
             weekday = '월화수목금토일'[today.weekday()],
@@ -682,6 +687,8 @@ def index():
             n_dinner     = len(dinner),
             n_wkend      = len(wkend),
             n_guest      = len(guests),
+            samgyup_next = samgyup_next,
+            my_samgyup   = my_samgyup,
             updated = datetime.now().strftime('%H:%M'),
         )
     except Exception as e:
@@ -1333,6 +1340,79 @@ def save_company_event(ds, ev_type, content, note=''):
             _cache.pop(f'events_{yr}_{mo}', None)
         except Exception:
             pass
+
+# ── 삼겹살데이 (월 2회 외부 부페) ──────────────────────────────
+def get_samgyup_dates():
+    """다가오는 삼겹살데이 날짜 (회사일정 유형='삼겹살데이', 오늘 이후)."""
+    today = date.today().strftime('%Y-%m-%d')
+    def _f():
+        try:
+            sh   = _open_sh()
+            rows = sh.worksheet('회사일정').get_all_values()[1:]
+            out  = []
+            for r in rows:
+                if (len(r) >= 2 and r[1].strip() == '삼겹살데이'
+                        and r[0].strip() >= today):
+                    out.append({'date': r[0].strip(),
+                                'content': r[2].strip() if len(r) > 2 else '삼겹살데이',
+                                'note': r[3].strip() if len(r) > 3 else ''})
+            return sorted(out, key=lambda x: x['date'])
+        except Exception:
+            return []
+    return _cached('samgyup_dates', _f, ttl=180)
+
+
+def _ensure_samgyup_sheet(sh):
+    try:
+        return sh.worksheet('삼겹살참석')
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title='삼겹살참석', rows=1000, cols=6)
+        ws.append_row(['날짜', '사번', '성명', '부서', '참석여부', '신청시간'])
+        return ws
+
+
+def get_my_samgyup(emp_id):
+    """내 삼겹살 참석 상태 {날짜: '참석'/'불참'}."""
+    if not emp_id:
+        return {}
+    try:
+        sh = _open_sh()
+        ws = _ensure_samgyup_sheet(sh)
+        out = {}
+        for r in ws.get_all_values()[1:]:
+            if len(r) >= 5 and r[1].strip().upper() == emp_id.upper():
+                out[r[0].strip()] = r[4].strip()
+        return out
+    except Exception:
+        return {}
+
+
+@app.route('/api/samgyup_attend', methods=['POST'])
+def api_samgyup_attend():
+    body   = request.get_json(silent=True) or {}
+    emp_id = (body.get('emp_id') or session.get('emp_id', '')).strip().upper()
+    ds     = body.get('date', '').strip()
+    attend = body.get('attend', '')
+    if not emp_id or not ds or attend not in ('참석', '불참'):
+        return jsonify({'ok': False, 'error': '잘못된 요청'})
+    try:
+        sh   = _open_sh()
+        ws   = _ensure_samgyup_sheet(sh)
+        emps = get_employees()
+        emp  = next((e for e in emps
+                     if str(e.get('사원번호', '')).strip().upper() == emp_id), {})
+        now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        rows = ws.get_all_values()
+        for i, r in enumerate(rows[1:], start=2):
+            if len(r) >= 2 and r[0].strip() == ds and r[1].strip().upper() == emp_id:
+                ws.update(range_name=f'E{i}:F{i}', values=[[attend, now_s]])
+                return jsonify({'ok': True, 'attend': attend})
+        ws.append_row([ds, emp_id, emp.get('성명', ''), emp.get('부서명', ''),
+                       attend, now_s], value_input_option='USER_ENTERED')
+        return jsonify({'ok': True, 'attend': attend})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
 
 def delete_company_event(ds, content):
     sh  = _open_sh()

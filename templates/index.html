@@ -18,11 +18,60 @@
       <div style="font-size:36px;line-height:1">📷</div>
       <div>
         <div style="font-size:15px;font-weight:700;color:#60A5FA">얼굴인식 식수 체크인</div>
-        <div style="font-size:12px;color:#94A3B8;margin-top:2px">중식신청 · 저녁도시락 신청</div>
+        <div style="font-size:12px;color:#94A3B8;margin-top:2px">중식신청 · 저녁 식사 신청</div>
       </div>
       <div style="margin-left:auto;font-size:20px;color:#3B82F6">›</div>
     </div>
   </a>
+
+  <!-- 삼겹살데이 참석 (다가오는 일정 있을 때만) -->
+  {% if samgyup_next %}
+  {% set sg_status = my_samgyup.get(samgyup_next.date, '') %}
+  <div class="c-card mb-3" style="border:2px solid #C2410C;overflow:visible">
+    <div style="background:linear-gradient(135deg,#C2410C,#9A3412);padding:12px 16px;color:#fff;border-radius:12px 12px 0 0">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:28px">🥓</span>
+        <div>
+          <div style="font-weight:800;font-size:15px">삼겹살데이</div>
+          <div style="font-size:12px;opacity:.9">{{ samgyup_next.date }} · {{ samgyup_next.content }}</div>
+        </div>
+      </div>
+    </div>
+    <div style="padding:14px 16px">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:10px">
+        외부 부페 식당으로 이동합니다. 참석 여부를 선택해 주세요.
+      </div>
+      <div id="sg-status" style="font-size:13px;font-weight:700;margin-bottom:10px;color:{{ '#16A34A' if sg_status=='참석' else '#DC2626' if sg_status=='불참' else 'var(--text3)' }}">
+        {% if sg_status %}현재 선택: {{ sg_status }}{% else %}아직 선택하지 않았습니다{% endif %}
+      </div>
+      <div style="display:flex;gap:10px">
+        <button onclick="sgAttend('{{ samgyup_next.date }}','참석')"
+          style="flex:1;padding:12px;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;background:#16A34A;color:#fff">
+          ✓ 참석</button>
+        <button onclick="sgAttend('{{ samgyup_next.date }}','불참')"
+          style="flex:1;padding:12px;border:none;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;background:#EDEAE3;color:#6B7280">
+          불참</button>
+      </div>
+    </div>
+  </div>
+  <script>
+  async function sgAttend(d, a) {
+    try {
+      const r = await fetch('/api/samgyup_attend', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({date:d, attend:a})
+      }).then(x=>x.json());
+      const el = document.getElementById('sg-status');
+      if (r.ok) {
+        el.textContent = '현재 선택: ' + a;
+        el.style.color = (a==='참석') ? '#16A34A' : '#DC2626';
+      } else {
+        el.textContent = '오류: ' + (r.error||'실패');
+      }
+    } catch(e) { alert('네트워크 오류'); }
+  }
+  </script>
+  {% endif %}
 
   <!-- 오늘 점심 메뉴 -->
   <div class="sec-lbl">오늘 점심 메뉴</div>
