@@ -1708,7 +1708,7 @@ def api_meal_checkin():
     elif action == '저녁도시락':
         deadline = settings.get('저녁마감', _OP_DEFAULTS['저녁마감'])
         if now > deadline:
-            return jsonify({'ok': False, 'error': f'저녁도시락 신청 마감 시간이 지났습니다. (마감 {deadline})'})
+            return jsonify({'ok': False, 'error': f'저녁 식사 신청 마감 시간이 지났습니다. (마감 {deadline})'})
 
     ds    = date.today().strftime('%Y-%m-%d')
     now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1737,7 +1737,10 @@ def api_meal_checkin():
             for r in rows:
                 if len(r) >= 3 and r[0].strip() == ds and r[2].strip() == emp_id:
                     return jsonify({'ok': False, 'error': '이미 신청됨'})
-            ws.append_row([ds, now_s, emp_id, emp_name, dept, rank, gender, '웹신청'],
+            # 저녁 모드: 구내식당이면 '구내'(점심처럼 단순), 도시락이면 성별 보존
+            _dmode = settings.get('저녁모드', '구내식당')
+            g = '구내' if _dmode == '구내식당' else gender
+            ws.append_row([ds, now_s, emp_id, emp_name, dept, rank, g, '웹신청'],
                           value_input_option='USER_ENTERED')
 
         with _lock:

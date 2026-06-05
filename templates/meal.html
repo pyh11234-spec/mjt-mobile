@@ -79,9 +79,9 @@
   <!-- 저녁 도시락 -->
   <div class="c-card mb-3">
     <div class="c-card-hd">
-      <span class="title">📦 저녁 도시락</span>
+      <span class="title">🍱 저녁 식사</span>
       <span class="badge-cnt" style="background:#D97706">
-        남 {{ dinner_m|length }} / 여 {{ dinner_f|length }}
+        {{ dinner_m|length + dinner_f|length }}명
       </span>
     </div>
     {% if dinner_m or dinner_f %}
