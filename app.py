@@ -1495,10 +1495,10 @@ def calendar_view():
     if week:
         weeks.append(week + [None] * (7 - len(week)))
 
-    ev_types = ['공휴일', '회의', '행사', '생산', '점검', '기타']
+    ev_types = ['공휴일', '회의', '행사', '생산', '점검', '삼겹살데이', '기타']
     ev_colors = {
         '공휴일': '#FEE2E2', '회의': '#DBEAFE', '행사': '#D1FAE5',
-        '생산': '#FFF3E0', '점검': '#EDE9FE', '기타': '#F3F4F6',
+        '생산': '#FFF3E0', '점검': '#EDE9FE', '삼겹살데이': '#FFEDD5', '기타': '#F3F4F6',
     }
 
     return render_template('calendar.html',
