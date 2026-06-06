@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% set page = 'capa' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">🔧 CAPA</div>
+    <div class="pg-sub">시정·예방조치 현황 (조회)</div>
+  </div>
+  <div style="display:flex;gap:6px">
+    <a href="/process" style="font-size:13px;color:#1A1A1A;background:var(--gold);text-decoration:none;padding:6px 12px;border-radius:6px;font-weight:700">🏭 공정</a>
+    <button class="btn-ref" onclick="location.reload()">↺</button>
+  </div>
+</div>
+
+<div class="px-3 pt-3">
+  <!-- KPI -->
+  <div class="row g-2 mb-3">
+    {% for key, label, color in [
+      ('open',   '진행중',     '#DC2626'),
+      ('verify', '효과검증',   '#7C3AED'),
+      ('done',   '완료',       '#16A34A'),
+      ('total',  '전체',       '#0D9488')
+    ] %}
+    <div class="col-6 col-md-3">
+      <div class="c-card" style="padding:12px;border-top:3px solid {{ color }}">
+        <div class="kpi-lbl">{{ label }}</div>
+        <div class="kpi-val" style="color:{{ color }}">{{ kpi[key] }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- 상태 필터 -->
+  <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:6px">
+    {% for s in statuses %}
+      <a href="/capa?status={{ s }}" class="filter-tab {% if s == cur_status %}active{% endif %}" style="white-space:nowrap">{{ s }}</a>
+    {% endfor %}
+  </div>
+
+  <!-- 목록 -->
+  <div class="c-card mb-3">
+    {% if not cases %}
+      <div class="empty">
+        <div style="font-size:32px;margin-bottom:8px">🗂️</div>
+        해당 상태의 CAPA가 없습니다.<br>
+        <span class="fs11">등록·처리는 데스크탑 [공정 운영·CAPA] 에서 합니다.</span>
+      </div>
+    {% else %}
+      {% set sc = {'접수':'#DC2626','원인분석':'#D97706','조치중':'#2563EB','효과검증':'#7C3AED','완료':'#16A34A','반려':'#64748B'} %}
+      {% for c in cases %}
+        <div class="c-row">
+          <span class="dot" style="background:{{ sc.get(c.status,'#94A3B8') }}"></span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+              #{{ c.capa_id }} {{ c.title }}
+            </div>
+            <div style="font-size:11px;color:var(--text2)">
+              {{ c.source_type or '-' }} · {{ c.factory or '' }}
+              {% if c.severity %}· <b style="color:{{ '#DC2626' if c.severity=='중대' else 'var(--text2)' }}">{{ c.severity }}</b>{% endif %}
+              {% if c.opened_at %}· {{ c.opened_at.strftime('%m/%d') }}{% endif %}
+            </div>
+          </div>
+          <span style="font-size:10px;font-weight:800;color:{{ sc.get(c.status,'#94A3B8') }}">{{ c.status }}</span>
+        </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <div class="t2 fs11 text-end mb-3">마지막 갱신: {{ updated }}  ·  v{{ mjt_version }}</div>
+</div>
+
+{% endblock %}

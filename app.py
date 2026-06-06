@@ -2172,6 +2172,74 @@ def equipment_search():
         return render_template('error.html', error=f'검색: {e}')
 
 
+@app.route('/process')
+def process_ops():
+    """공정 운영 대시보드 (모바일·조회) — 가동률 + 비가동 분석.
+    가동률 = 실적 ÷ Capa/D. 데스크탑 process_ops.py 와 동일 데이터(v_process_oee)."""
+    if not db_pg.is_available():
+        return render_template('error.html',
+            error='Supabase 환경변수(SUPABASE_DB_URL) 미설정.')
+    try:
+        k = db_pg.query_one(
+            "SELECT ROUND(AVG(operate_rate_pct),1) avg_oee, "
+            "COUNT(DISTINCT process) procs FROM v_process_oee "
+            "WHERE operate_rate_pct IS NOT NULL") or {}
+        dh = db_pg.query_one("SELECT COALESCE(SUM(minutes),0) m FROM prod_downtime") or {}
+        qa = db_pg.query_one(
+            "SELECT CASE WHEN SUM(input_qty)>0 THEN "
+            "ROUND(SUM(defect_qty)/SUM(input_qty)*100,2) ELSE 0 END r FROM prod_daily") or {}
+        kpi = {
+            'avg_oee': k.get('avg_oee') if k.get('avg_oee') is not None else '—',
+            'procs':   k.get('procs') or 0,
+            'down_h':  round((dh.get('m') or 0) / 60, 1),
+            'defect':  qa.get('r') or 0,
+        }
+        procs = db_pg.query(
+            "SELECT part_group, process, ROUND(AVG(operate_rate_pct),1) oee, "
+            "SUM(output_qty) out FROM v_process_oee WHERE operate_rate_pct IS NOT NULL "
+            "GROUP BY part_group, process ORDER BY oee ASC LIMIT 40")
+        downs = db_pg.query(
+            "SELECT d.category code, c.reason_name, c.category big, "
+            "COUNT(*) cnt, SUM(d.minutes) mins FROM prod_downtime d "
+            "LEFT JOIN downtime_code c ON c.code = NULLIF(d.category,'')::int "
+            "GROUP BY d.category, c.reason_name, c.category "
+            "ORDER BY SUM(d.minutes) DESC LIMIT 12")
+        return render_template('process.html', kpi=kpi, procs=procs, downs=downs,
+                               updated=datetime.now().strftime('%H:%M'))
+    except Exception as e:
+        return render_template('error.html', error=f'공정 운영: {e}')
+
+
+@app.route('/capa')
+def capa_board():
+    """CAPA 시정·예방조치 (모바일·조회). 등록/처리는 데스크탑."""
+    if not db_pg.is_available():
+        return render_template('error.html',
+            error='Supabase 환경변수(SUPABASE_DB_URL) 미설정.')
+    try:
+        st = request.args.get('status', '전체').strip()
+        sql = ("SELECT capa_id, opened_at, factory, source_type, title, severity, "
+               "status, due_date FROM capa_cases ")
+        params = []
+        if st and st != '전체':
+            sql += "WHERE status=%s "; params.append(st)
+        sql += "ORDER BY opened_at DESC LIMIT 100"
+        cases = db_pg.query(sql, tuple(params) if params else None)
+        by_status = {r['status']: r['c'] for r in db_pg.query(
+            "SELECT status, COUNT(*) c FROM capa_cases GROUP BY status")}
+        kpi = {
+            'open':   sum(v for s, v in by_status.items() if s not in ('완료', '반려')),
+            'verify': by_status.get('효과검증', 0),
+            'done':   by_status.get('완료', 0),
+            'total':  sum(by_status.values()),
+        }
+        return render_template('capa.html', cases=cases, kpi=kpi, cur_status=st,
+                               statuses=['전체', '접수', '원인분석', '조치중', '효과검증', '완료', '반려'],
+                               updated=datetime.now().strftime('%H:%M'))
+    except Exception as e:
+        return render_template('error.html', error=f'CAPA: {e}')
+
+
 @app.route('/improvement')
 def improvement_dashboard():
     """개선제안 대시보드 — 5년치 검색 + 통계."""

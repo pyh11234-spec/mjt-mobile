@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% set page = 'process' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">🏭 공정 운영</div>
+    <div class="pg-sub">가동률 · 비가동 분석 (실적 ÷ 생산능력)</div>
+  </div>
+  <div style="display:flex;gap:6px">
+    <a href="/capa" style="font-size:13px;color:#1A1A1A;background:var(--gold);text-decoration:none;padding:6px 12px;border-radius:6px;font-weight:700">🔧 CAPA</a>
+    <button class="btn-ref" onclick="location.reload()">↺</button>
+  </div>
+</div>
+
+<div class="px-3 pt-3">
+  <!-- KPI -->
+  <div class="row g-2 mb-3">
+    {% for key, label, color, unit in [
+      ('avg_oee', '평균 가동률', '#0D9488', '%'),
+      ('down_h',  '총 비가동',   '#DC2626', 'H'),
+      ('defect',  '평균 불량률', '#D97706', '%'),
+      ('procs',   '집계 공정',   '#16A34A', '')
+    ] %}
+    <div class="col-6 col-md-3">
+      <div class="c-card" style="padding:12px;border-top:3px solid {{ color }}">
+        <div class="kpi-lbl">{{ label }}</div>
+        <div class="kpi-val" style="color:{{ color }}">{{ kpi[key] }}<span style="font-size:14px">{{ unit }}</span></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- 공정별 가동률 (낮은 순 = 개선 우선) -->
+  <div class="sec-lbl">공정별 가동률  ·  낮은 순 (개선 우선)</div>
+  <div class="c-card mb-3" style="padding:14px">
+    {% if not procs %}
+      <div class="empty">집계된 공정 가동률이 없습니다.</div>
+    {% else %}
+      {% for p in procs %}
+        {% set oee = p.oee or 0 %}
+        {% set col = '#DC2626' if oee < 60 else ('#D97706' if oee < 85 else '#16A34A') %}
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px">
+          <div style="width:118px;min-width:118px">
+            <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.process }}</div>
+            <div style="font-size:10px;color:var(--text2)">{{ p.part_group }}</div>
+          </div>
+          <div style="flex:1;background:var(--bg2);height:18px;border-radius:9px;overflow:hidden">
+            <div style="width:{{ [oee, 100]|min }}%;height:100%;background:{{ col }}"></div>
+          </div>
+          <span style="width:48px;text-align:right;font-weight:800;color:{{ col }}">{{ oee }}%</span>
+        </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <!-- 비가동 코드별 손실 -->
+  <div class="sec-lbl">비가동 코드별 손실시간</div>
+  <div class="c-card mb-3">
+    {% if not downs %}
+      <div class="empty">비가동 기록이 없습니다.</div>
+    {% else %}
+      {% for d in downs %}
+        <div class="c-row">
+          <span class="badge-cnt" style="background:var(--gold-l);color:var(--gold2);min-width:34px;text-align:center">{{ d.code }}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700">{{ d.reason_name or '(사유 미지정)' }}</div>
+            <div style="font-size:11px;color:var(--text2)">{{ d.big or '기타' }} · {{ d.cnt }}건</div>
+          </div>
+          <span style="font-weight:800;color:var(--red)">{{ '{:,}'.format(d.mins or 0) }}분</span>
+        </div>
+      {% endfor %}
+      <div style="padding:8px 16px;font-size:11px;color:var(--text2)">
+        ※ 코드 사유명은 데스크탑 [비가동 분석] 탭에서 등록합니다.
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="t2 fs11 text-end mb-3">마지막 갱신: {{ updated }}  ·  v{{ mjt_version }}</div>
+</div>
+
+{% endblock %}
