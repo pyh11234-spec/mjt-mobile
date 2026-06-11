@@ -1,415 +1,96 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#0F172A">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>MJT 체크인</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    body {
-      background: #0F172A;
-      color: #F1F5F9;
-      font-family: 'Apple SD Gothic Neo', '맑은 고딕', sans-serif;
-      height: 100dvh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    /* Header */
-    .hd {
-      background: #1E293B;
-      border-bottom: 1px solid #334155;
-      padding: 12px 16px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex-shrink: 0;
-    }
-    .hd a { color: #94A3B8; font-size: 22px; text-decoration: none; line-height: 1; }
-    .hd .title { font-weight: 700; font-size: 16px; }
-    .hd .reg-link {
-      margin-left: auto;
-      font-size: 12px;
-      color: #64748B;
-      text-decoration: none;
-      border: 1px solid #334155;
-      border-radius: 6px;
-      padding: 4px 10px;
-    }
+{% extends 'base.html' %}
+{% set page = 'checkin' %}
+{% block content %}
 
-    /* Camera area */
-    .cam-wrap {
-      position: relative;
-      flex: 1;
-      background: #000;
-      overflow: hidden;
-    }
-    video, canvas {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      object-fit: cover;
-    }
-    canvas { pointer-events: none; }
-
-    /* Status overlay */
-    .status-bar {
-      position: absolute;
-      bottom: 0; left: 0; right: 0;
-      background: linear-gradient(transparent, rgba(0,0,0,0.85));
-      padding: 12px 16px 16px;
-      font-size: 14px;
-      color: #CBD5E1;
-      text-align: center;
-    }
-    .status-dot {
-      display: inline-block;
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      margin-right: 6px;
-      animation: pulse 1.5s infinite;
-    }
-    .dot-ready  { background: #22C55E; }
-    .dot-scan   { background: #F59E0B; }
-    .dot-done   { background: #3B82F6; animation: none; }
-    .dot-error  { background: #EF4444; animation: none; }
-    .dot-load   { background: #94A3B8; }
-    @keyframes pulse {
-      0%,100% { opacity: 1; } 50% { opacity: 0.3; }
-    }
-
-    /* Result card */
-    .result-card {
-      position: absolute;
-      left: 50%; top: 50%;
-      transform: translate(-50%, -50%);
-      background: rgba(15,23,42,0.95);
-      border: 1px solid #334155;
-      border-radius: 16px;
-      padding: 24px 28px;
-      text-align: center;
-      min-width: 260px;
-      max-width: 90vw;
-      display: none;
-    }
-    .result-card.show { display: block; animation: fadeIn .25s ease; }
-    @keyframes fadeIn { from { opacity:0; transform: translate(-50%,-54%); } to { opacity:1; transform: translate(-50%,-50%); } }
-    .emp-name { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
-    .emp-dept { font-size: 13px; color: #94A3B8; margin-bottom: 20px; }
-    .action-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-    .btn-action {
-      padding: 12px 20px;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 600;
-      border: none;
-      cursor: pointer;
-      min-width: 100px;
-    }
-    .btn-lunch  { background: #0EA5E9; color: #fff; }
-    .btn-dinner { background: #F59E0B; color: #fff; }
-    .btn-cancel { background: #334155; color: #CBD5E1; font-size: 13px; margin-top: 8px; width: 100%; }
-    .btn-action:active { opacity: 0.75; }
-
-    /* Toast */
-    .toast {
-      position: fixed;
-      top: 70px; left: 50%;
-      transform: translateX(-50%);
-      background: #1E293B;
-      border: 1px solid #334155;
-      border-radius: 10px;
-      padding: 12px 20px;
-      font-size: 14px;
-      text-align: center;
-      z-index: 999;
-      opacity: 0;
-      transition: opacity .3s;
-      pointer-events: none;
-      min-width: 220px;
-    }
-    .toast.show { opacity: 1; }
-    .toast.ok   { border-color: #22C55E; color: #22C55E; }
-    .toast.err  { border-color: #EF4444; color: #EF4444; white-space: pre-line; text-align: center; line-height: 1.6; padding: 14px 20px; }
-
-    /* Loading overlay */
-    .loading {
-      position: absolute;
-      inset: 0;
-      background: #0F172A;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      gap: 16px;
-      z-index: 50;
-    }
-    .loading .spinner {
-      width: 44px; height: 44px;
-      border: 3px solid #334155;
-      border-top-color: #3B82F6;
-      border-radius: 50%;
-      animation: spin .8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .loading-text { font-size: 13px; color: #94A3B8; text-align: center; }
-    .loading-prog { font-size: 12px; color: #64748B; }
-  </style>
-</head>
-<body>
-
-<div class="hd">
-  <a href="javascript:closeCard()">&#8592;</a>
-  <div class="title">📷 얼굴인식 체크인</div>
-  <span style="width:1px"></span>
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">🍚 식수 신청</div>
+    <div class="pg-sub">{{ emp_name }}님{% if emp_id %} ({{ emp_id }}){% endif %}</div>
+  </div>
 </div>
 
-<div class="cam-wrap" id="camWrap">
-  <div class="loading" id="loadingEl">
-    <div class="spinner"></div>
-    <div class="loading-text" id="loadTxt">모델 로딩 중…</div>
-    <div class="loading-prog" id="loadProg"></div>
-  </div>
-  <video id="vid" autoplay muted playsinline></video>
-  <canvas id="cvs"></canvas>
-
-  <div class="status-bar" id="statusBar">
-    <span class="status-dot dot-load" id="statusDot"></span>
-    <span id="statusMsg">초기화 중…</span>
-  </div>
-
-  <div class="result-card" id="resultCard">
-    <div class="emp-name" id="cardName"></div>
-    <div class="emp-dept" id="cardDept"></div>
-    <div class="action-btns">
-      <button class="btn-action btn-lunch"  onclick="doCheckin('중식신청')">🍚 중식신청</button>
-      <button class="btn-action btn-dinner" onclick="doCheckin('저녁도시락')">🍱 저녁 식사</button>
+<div class="px-3 pt-3">
+  <div class="c-card mb-3" style="padding:18px">
+    <div style="font-size:13px;color:#94A3B8;margin-bottom:16px;line-height:1.6">
+      신청할 식사를 선택하세요.<br>
+      <span style="color:#64748B">로그인된 본인({{ emp_name }}) 계정으로 신청됩니다.</span>
     </div>
-    <button class="btn-action btn-cancel" onclick="closeCard()">취소 (메인으로 나가기)</button>
+
+    <button class="meal-btn lunch"  onclick="apply('중식신청', this)">
+      <span class="ic">🍚</span>
+      <span class="tx"><b>중식 신청</b><small>오늘 점심 구내식당</small></span>
+      <span class="ar">›</span>
+    </button>
+
+    <button class="meal-btn dinner" onclick="apply('저녁도시락', this)">
+      <span class="ic">🍱</span>
+      <span class="tx"><b>저녁 식사 신청</b><small>저녁 도시락 / 구내</small></span>
+      <span class="ar">›</span>
+    </button>
   </div>
 
-  <div class="result-card" id="registerCard">
-    <div style="font-size:40px;margin-bottom:8px">📸</div>
-    <div class="emp-name" style="font-size:18px">얼굴이 등록되지 않았어요</div>
-    <div class="emp-dept" style="margin-bottom:18px;line-height:1.6">
-      식당 PC에서 얼굴을 먼저 등록해 주세요.<br>등록 후 모바일에서 바로 인식됩니다.</div>
-    <button class="btn-action btn-cancel" onclick="dismissRegister()">다시 인식 시도</button>
+  <div style="text-align:center;font-size:12px;color:#475569;margin-top:6px">
+    ※ 얼굴인식 등록·체크인은 식당 공용 PC에서 진행합니다.
   </div>
 </div>
 
 <div class="toast" id="toast"></div>
 
+<style>
+  .meal-btn{
+    display:flex; align-items:center; gap:14px; width:100%;
+    background:#1E293B; border:1px solid #334155; border-radius:14px;
+    padding:16px 16px; margin-bottom:12px; cursor:pointer;
+    color:#F1F5F9; text-align:left; transition:transform .08s, background .15s;
+  }
+  .meal-btn:active{ transform:scale(.98); }
+  .meal-btn:disabled{ opacity:.5; }
+  .meal-btn.lunch{ border-color:#0EA5E9; }
+  .meal-btn.dinner{ border-color:#F59E0B; }
+  .meal-btn .ic{ font-size:30px; line-height:1; }
+  .meal-btn .tx{ display:flex; flex-direction:column; gap:2px; }
+  .meal-btn .tx b{ font-size:16px; }
+  .meal-btn .tx small{ font-size:12px; color:#94A3B8; }
+  .meal-btn .ar{ margin-left:auto; font-size:22px; color:#64748B; }
+  .toast{
+    position:fixed; top:70px; left:50%; transform:translateX(-50%);
+    background:#1E293B; border:1px solid #334155; border-radius:10px;
+    padding:13px 20px; font-size:14px; text-align:center; z-index:999;
+    opacity:0; transition:opacity .3s; pointer-events:none; min-width:220px;
+    white-space:pre-line; line-height:1.6;
+  }
+  .toast.show{ opacity:1; }
+  .toast.ok{ border-color:#22C55E; color:#22C55E; }
+  .toast.err{ border-color:#EF4444; color:#EF4444; }
+</style>
+
 <script>
-// ── 서버사이드 LBPH 인식 (face-api.js 제거) ─────────────────────
-const DETECT_INTERVAL = 800;   // ms
-const COOLDOWN_S      = 40;
-
-let lastRecognized  = {};
-let currentEmp      = null;
-let scanning        = false;
-let detectTimer     = null;
-let cameraStream    = null;
-let failCount       = 0;      // 연속 미인식 횟수
-let registerNudged  = false;  // 등록 안내 표시 여부
-
-function stopCameraAndExit() {
-  scanning = false;
-  clearTimeout(detectTimer);
-  try {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(t => t.stop());
-      cameraStream = null;
+async function apply(action, btn){
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/meal_checkin', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action })   // emp_id는 서버가 로그인 세션에서 가져감
+    });
+    const d = await res.json();
+    const label = (action === '중식신청') ? '중식' : '저녁 식사';
+    if(d.ok){
+      toast('✅ ' + (d.name || '') + ' – ' + label + ' 신청 완료!', 'ok');
+    }else{
+      toast('⚠ ' + (d.error || '오류가 발생했습니다'), 'err');
     }
-    const vid = document.getElementById('vid');
-    if (vid) { vid.pause(); vid.srcObject = null; }
-  } catch (e) { /* ignore */ }
+  }catch(e){
+    toast('⚠ 네트워크 오류', 'err');
+  }
+  setTimeout(()=>{ btn.disabled = false; }, 1500);
 }
-
-// 페이지 이탈 시 카메라 즉시 종료
-window.addEventListener('pagehide',     stopCameraAndExit);
-window.addEventListener('beforeunload', stopCameraAndExit);
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') stopCameraAndExit();
-});
-
-// ── UI helpers ──────────────────────────────────────────────────
-function setStatus(msg, type) {
-  document.getElementById('statusMsg').textContent = msg;
-  const d = document.getElementById('statusDot');
-  d.className = 'status-dot dot-' + (type || 'load');
-}
-function dbg() { /* 디버그 비활성 */ }
-
-function showToast(msg, type, duration) {
+function toast(msg, type){
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show ' + (type || '');
-  clearTimeout(t._tid);
-  t._tid = setTimeout(() => { t.className = 'toast'; }, duration || 2800);
+  clearTimeout(t._t);
+  t._t = setTimeout(()=>{ t.className = 'toast'; }, 3200);
 }
-
-function closeCard() {
-  // 카메라 즉시 종료 후 메인 화면으로 이동 — 멈춘 듯한 느낌 제거
-  document.getElementById('resultCard').classList.remove('show');
-  stopCameraAndExit();
-  location.replace('/');
-}
-
-function showCard(emp) {
-  scanning = false;
-  clearTimeout(detectTimer);
-  document.getElementById('cardName').textContent = emp.name;
-  document.getElementById('cardDept').textContent = emp.factory || emp.emp_id;
-  document.getElementById('resultCard').classList.add('show');
-  setStatus('인식 완료 – 신청 항목을 선택하세요', 'done');
-}
-
-function showRegisterCard() {
-  scanning = false;
-  clearTimeout(detectTimer);
-  document.getElementById('registerCard').classList.add('show');
-  setStatus('미등록 사원 – 얼굴 등록이 필요합니다', 'error');
-}
-
-function dismissRegister() {
-  document.getElementById('registerCard').classList.remove('show');
-  failCount = 0;
-  setStatus('얼굴을 카메라에 대세요', 'ready');
-  scanning = true;
-  scheduleDetect();
-}
-
-// ── Check-in ────────────────────────────────────────────────────
-async function doCheckin(action) {
-  if (!currentEmp) return;
-  const emp = currentEmp;
-  document.getElementById('resultCard').classList.remove('show');
-  setStatus('처리 중…', 'scan');
-  try {
-    const res  = await fetch('/api/meal_checkin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emp_id: emp.emp_id, action }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast(`✅ ${data.name || emp.name} – ${action} 완료!`, 'ok', 3000);
-      lastRecognized[emp.emp_id] = Date.now();
-    } else {
-      showToast(`⚠ ${data.error || '오류 발생'}`, 'err', 3000);
-    }
-  } catch (e) {
-    showToast('⚠ 네트워크 오류', 'err');
-  }
-  currentEmp = null;
-  scanning   = true;
-  scheduleDetect();
-}
-
-// ── 서버사이드 LBPH 인식 루프 ────────────────────────────────────
-function captureFrame() {
-  const vid = document.getElementById('vid');
-  const vw = vid.videoWidth, vh = vid.videoHeight;
-  if (!vw || !vh) return null;
-  // 종횡비 유지 — 긴 변 480 기준 축소 (얼굴 비율 보존)
-  const scale = 480 / Math.max(vw, vh);
-  const c = document.createElement('canvas');
-  c.width  = Math.round(vw * scale);
-  c.height = Math.round(vh * scale);
-  c.getContext('2d').drawImage(vid, 0, 0, c.width, c.height);
-  return c.toDataURL('image/jpeg', 0.85);
-}
-
-let _dbgN = 0;
-async function detectOnce() {
-  if (!scanning) return;
-  setStatus('분석 중…', 'scan');
-  dbg('프레임 전송 #' + (++_dbgN));
-  const img = captureFrame();
-  try {
-    const ctrl = new AbortController();
-    const tid  = setTimeout(() => ctrl.abort(), 5000);
-    const res  = await fetch('/api/face_recognize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: img }),
-      signal: ctrl.signal,
-    });
-    clearTimeout(tid);
-    const data = await res.json();
-    dbg('응답: ' + JSON.stringify(data).slice(0, 80));
-    if (data.ok && data.emp_id) {
-      failCount = 0; registerNudged = false;
-      const now  = Date.now();
-      const last = lastRecognized[data.emp_id] || 0;
-      if (now - last < COOLDOWN_S * 1000) {
-        const rem = Math.ceil((COOLDOWN_S * 1000 - (now - last)) / 1000);
-        setStatus(`${data.name} – 쿨다운 중 (${rem}초)`, 'scan');
-      } else {
-        currentEmp = data;
-        showCard(data);
-        return;
-      }
-    } else if (data.face === false) {
-      failCount = 0;
-      setStatus('얼굴을 카메라에 가까이 대세요', 'scan');
-    } else {
-      // 얼굴은 감지됐지만 미등록
-      failCount++;
-      setStatus(`등록된 얼굴이 아닙니다 (${failCount}/4)`, 'scan');
-      if (failCount >= 4) {
-        showRegisterCard();
-        return;
-      }
-    }
-  } catch (e) {
-    dbg('오류: ' + e.message);
-    setStatus('서버 연결 오류: ' + e.message, 'scan');
-  }
-  scheduleDetect();
-}
-
-function scheduleDetect() {
-  clearTimeout(detectTimer);
-  if (scanning) detectTimer = setTimeout(detectOnce, DETECT_INTERVAL);
-}
-
-// ── Init ────────────────────────────────────────────────────────
-async function init() {
-  setStatus('카메라 시작 중…', 'load');
-  document.getElementById('loadProg').textContent = '카메라 권한 요청…';
-  try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: false,
-    });
-  } catch (e) {
-    document.getElementById('loadTxt').textContent = '카메라 권한이 필요합니다';
-    document.getElementById('loadProg').textContent = '브라우저 설정에서 카메라를 허용해 주세요';
-    document.getElementById('statusDot').className = 'status-dot dot-error';
-    document.getElementById('statusMsg').textContent = '카메라 없음';
-    return;
-  }
-  const vid = document.getElementById('vid');
-  vid.srcObject = cameraStream;
-  await vid.play().catch(() => {});
-  await new Promise(r => {
-    if (vid.readyState >= 1) { r(); return; }
-    vid.onloadedmetadata = r;
-    setTimeout(r, 2000);  // 2초 후 강제 진행
-  });
-  document.getElementById('loadingEl').style.display = 'none';
-  setStatus('얼굴을 카메라에 대세요', 'ready');
-  document.getElementById('loadTxt').textContent = '서버 인식 모드 (LBPH)';
-  dbg('카메라 OK, 스캔 시작 (vid ' + vid.videoWidth + 'x' + vid.videoHeight + ')');
-  scanning = true;
-  scheduleDetect();
-}
-
-init().catch(e => {
-  dbg('init 실패: ' + e.message);
-  document.getElementById('loadTxt').textContent = '초기화 실패: ' + e.message;
-});
 </script>
-</body>
-</html>
+{% endblock %}

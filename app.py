@@ -65,7 +65,7 @@ _login_lock = threading.Lock()
 # 인증 면제 경로 (로그인/정적 자산 등)
 _AUTH_EXEMPT_PREFIX = ('/login', '/logout', '/static', '/api/health',
                        '/favicon.ico', '/api/cv_check', '/api/face_cache_reset',
-                       '/api/face_recognize', '/checkin')
+                       '/api/face_recognize')
 
 
 def _ip():
@@ -1645,7 +1645,10 @@ def api_delete_face_descriptor():
 
 @app.route('/checkin')
 def checkin():
-    return render_template('checkin.html')
+    # 얼굴인식 제거 — 로그인(세션) 기반 식수 신청 페이지로 전환
+    return render_template('checkin.html',
+                           emp_name=session.get('emp_name', ''),
+                           emp_id=session.get('emp_id', ''))
 
 
 @app.route('/register_face')
@@ -1796,10 +1799,12 @@ def api_register_face_frame():
 @app.route('/api/meal_checkin', methods=['POST'])
 def api_meal_checkin():
     body   = request.get_json(silent=True) or {}
-    emp_id = body.get('emp_id', '').strip()
+    emp_id = (session.get('emp_id') or '').strip()   # 로그인 본인만 신청 — 대리신청 차단
     action = body.get('action', '').strip()
 
-    if not emp_id or action not in ('중식신청', '저녁도시락'):
+    if not emp_id:
+        return jsonify({'ok': False, 'error': '로그인이 필요합니다'})
+    if action not in ('중식신청', '저녁도시락'):
         return jsonify({'ok': False, 'error': '잘못된 요청'})
 
     settings = get_op_settings()

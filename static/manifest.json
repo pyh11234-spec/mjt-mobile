@@ -32,8 +32,8 @@
   ],
   "shortcuts": [
     {
-      "name": "체크인",
-      "short_name": "체크인",
+      "name": "식수 신청",
+      "short_name": "식수신청",
       "url": "/checkin",
       "icons": [{"src": "/static/icons/icon-192.png", "sizes": "192x192"}]
     },
