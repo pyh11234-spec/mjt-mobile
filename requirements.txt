@@ -5,5 +5,5 @@ gunicorn>=21.0.0
 openpyxl>=3.1.0
 psycopg[binary,pool]>=3.2.0
 python-dotenv>=1.0.0
-opencv-contrib-python-headless>=4.8.0
-numpy>=1.24.0
+# v2: 모바일 서버사이드 얼굴인식(LBPH) 폐기 → opencv/numpy 제거(Render 메모리·빌드 경량화).
+#     얼굴 인증은 PC 키오스크 전용(ArcFace).

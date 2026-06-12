@@ -64,8 +64,7 @@ _login_lock = threading.Lock()
 
 # 인증 면제 경로 (로그인/정적 자산 등)
 _AUTH_EXEMPT_PREFIX = ('/login', '/logout', '/static', '/api/health',
-                       '/favicon.ico', '/api/cv_check', '/api/face_cache_reset',
-                       '/api/face_recognize')
+                       '/favicon.ico')
 
 
 def _ip():
@@ -1555,94 +1554,9 @@ def api_refresh():
     return jsonify({'ok': True, 'ts': datetime.now().strftime('%H:%M:%S')})
 
 
-# ── 얼굴인식 ─────────────────────────────────────────────────────
-FACE_SHEET = '얼굴인식'
-
-def _ensure_face_sheet(sh):
-    try:
-        return sh.worksheet(FACE_SHEET)
-    except WorksheetNotFound:
-        ws = sh.add_worksheet(title=FACE_SHEET, rows=200, cols=5)
-        ws.append_row(['사원번호', '성명', '공장', 'descriptor', '등록일시'])
-        return ws
-
-def get_face_descriptors():
-    def _f():
-        try:
-            sh = _open_sh()
-            ws = _ensure_face_sheet(sh)
-            rows = ws.get_all_values()[1:]
-            result = []
-            for r in rows:
-                if len(r) < 4 or not r[0].strip():
-                    continue
-                try:
-                    desc = json.loads(r[3])
-                    if isinstance(desc, list) and len(desc) == 128:
-                        result.append({
-                            'emp_id':     r[0].strip(),
-                            'name':       r[1].strip(),
-                            'factory':    r[2].strip() if len(r) > 2 else '',
-                            'descriptor': desc,
-                        })
-                except Exception:
-                    pass
-            return result
-        except Exception:
-            return []
-    return _cached('face_desc', _f, ttl=300)
-
-def save_face_descriptor(emp_id, name, factory, descriptor):
-    sh  = _open_sh()
-    ws  = _ensure_face_sheet(sh)
-    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    desc_json = json.dumps(descriptor)
-    rows = ws.get_all_values()
-    for i, r in enumerate(rows[1:], start=2):
-        if r and r[0].strip() == emp_id:
-            ws.update(range_name=f'A{i}:E{i}',
-                      values=[[emp_id, name, factory, desc_json, now_s]])
-            with _lock:
-                _cache.pop('face_desc', None)
-            return
-    ws.append_row([emp_id, name, factory, desc_json, now_s],
-                  value_input_option='USER_ENTERED')
-    with _lock:
-        _cache.pop('face_desc', None)
-
-
-def delete_face_descriptor(emp_id: str) -> bool:
-    """Google Sheets 얼굴인식 시트에서 해당 사번 행 삭제."""
-    try:
-        sh = _open_sh()
-        ws = _ensure_face_sheet(sh)
-        rows = ws.get_all_values()
-        for i, r in enumerate(rows[1:], start=2):
-            if r and r[0].strip().upper() == emp_id.upper():
-                ws.delete_rows(i)
-                with _lock:
-                    _cache.pop('face_desc', None)
-                return True
-    except Exception:
-        pass
-    return False
-
-
-@app.route('/api/delete_face_descriptor', methods=['POST'])
-def api_delete_face_descriptor():
-    """데스크탑에서 얼굴 삭제 시 Sheets descriptor도 같이 삭제."""
-    _PW = os.environ.get('ADMIN_PW', 'mj3838scs')
-    body   = request.get_json(silent=True) or {}
-    emp_id = body.get('emp_id', '').strip().upper()
-    pw     = body.get('pw', '')
-    if not emp_id:
-        return jsonify({'ok': False, 'msg': '사번 누락'})
-    if pw != _PW:
-        return jsonify({'ok': False, 'msg': '비밀번호 오류'})
-    ok = delete_face_descriptor(emp_id)
-    return jsonify({'ok': True, 'deleted': ok})
-
-
+# ── 식수 신청 (모바일: 로그인 기반 — 얼굴인식은 식당 PC 전담, ArcFace) ──────
+# v2: 모바일 얼굴인식/등록(서버사이드 LBPH·Sheets descriptor) 전면 폐기.
+#     얼굴 인증은 PC 키오스크 전용(생체정보 외부전송·스푸핑·Render 메모리 회피).
 @app.route('/checkin')
 def checkin():
     # 얼굴인식 제거 — 로그인(세션) 기반 식수 신청 페이지로 전환
@@ -1656,144 +1570,6 @@ def register_face():
     # 얼굴 등록은 식당 PC 전담으로 일원화 — 모바일 등록 비활성
     return render_template('error.html',
         error='얼굴 등록은 식당 PC에서만 가능합니다.\n식당 관리 PC에서 등록해 주세요.')
-
-
-@app.route('/api/face_descriptors')
-def api_face_descriptors():
-    return jsonify(get_face_descriptors())
-
-
-# ── 서버사이드 LBPH 얼굴 인식 ──────────────────────────────────────
-import threading as _threading
-_face_lock = _threading.Lock()
-_face_recognizer = None   # LBPH 모델 (Supabase에서 로드)
-_face_labels: dict = {}   # int → emp_id
-_face_loaded_at = 0.0
-
-def _load_lbph_model():
-    """Supabase face_model 테이블에서 LBPH 모델 로드. 5분 캐시."""
-    global _face_recognizer, _face_labels, _face_loaded_at
-    import time as _time
-    if _time.time() - _face_loaded_at < 300 and _face_recognizer is not None:
-        return _face_recognizer, _face_labels
-    try:
-        import cv2, tempfile, os as _os, json as _json
-        row = db_pg.query_one(
-            "SELECT model_data, labels_json FROM face_model WHERE id = 1")
-        if not row:
-            return None, {}
-        with tempfile.NamedTemporaryFile(suffix='.yml', delete=False) as f:
-            f.write(bytes(row['model_data'])); tmp = f.name
-        rec = cv2.face.LBPHFaceRecognizer_create()
-        rec.read(tmp)
-        _os.unlink(tmp)
-        labels = {int(k): v for k, v in _json.loads(row['labels_json']).items()}
-        with _face_lock:
-            _face_recognizer = rec
-            _face_labels = labels
-            _face_loaded_at = _time.time()
-        return rec, labels
-    except Exception as e:
-        return None, {}
-
-
-@app.route('/api/face_cache_reset', methods=['GET', 'POST'])
-def api_face_cache_reset():
-    """LBPH 모델 캐시 강제 무효화 (삭제/재학습 후 호출)."""
-    global _face_loaded_at
-    _face_loaded_at = 0.0
-    return jsonify({'ok': True})
-
-
-@app.route('/api/cv_check')
-def api_cv_check():
-    """OpenCV 설치 확인용 (진단)."""
-    try:
-        import cv2
-        has_face = hasattr(cv2, 'face')
-        return jsonify({'ok': True, 'version': cv2.__version__, 'lbph': has_face})
-    except Exception as e:
-        return jsonify({'ok': False, 'msg': str(e)})
-
-
-@app.route('/api/face_recognize', methods=['POST'])
-def api_face_recognize():
-    """모바일 카메라 프레임 → 서버에서 LBPH 인식 → emp_id 반환."""
-    import base64 as _b64
-    body  = request.get_json(silent=True) or {}
-    img_b64 = body.get('image', '')
-    if not img_b64:
-        return jsonify({'ok': False, 'msg': '이미지 없음'})
-    try:
-        try:
-            import cv2, numpy as _np
-        except ImportError as ie:
-            return jsonify({'ok': False, 'msg': f'OpenCV 미설치: {ie}'})
-        img_bytes = _b64.b64decode(img_b64.split(',')[-1])
-        arr = _np.frombuffer(img_bytes, dtype=_np.uint8)
-        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        if frame is None:
-            return jsonify({'ok': False, 'msg': '이미지 디코딩 실패'})
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        # Haar cascade 얼굴 검출
-        haar_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        cascade = cv2.CascadeClassifier(haar_path)
-        faces = cascade.detectMultiScale(gray, 1.2, 4, minSize=(50, 50))
-        if not len(faces):
-            return jsonify({'ok': False, 'face': False})
-        rec, labels = _load_lbph_model()
-        if rec is None:
-            return jsonify({'ok': False, 'msg': '모델 없음'})
-        x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
-        roi = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
-        label, conf = rec.predict(roi)
-        if conf > 110:
-            return jsonify({'ok': False, 'face': True, 'conf': float(conf)})
-        emp_id = labels.get(label)
-        if not emp_id:
-            return jsonify({'ok': False, 'face': True})
-        emp = _verify_emp_active(emp_id)
-        if not emp:
-            return jsonify({'ok': False, 'face': True, 'msg': '비활성 사원'})
-        return jsonify({'ok': True, 'emp_id': emp_id,
-                        'name': emp['name'], 'dept': emp.get('dept', ''),
-                        'conf': float(conf)})
-    except Exception as e:
-        return jsonify({'ok': False, 'msg': str(e)[:80]})
-
-
-@app.route('/api/register_face_frame', methods=['POST'])
-def api_register_face_frame():
-    """모바일 얼굴 등록 — 단계별 이미지 저장 (face_pending 테이블)."""
-    import base64 as _b64
-    _PW = os.environ.get('ADMIN_PW', 'mj3838scs')
-    body    = request.get_json(silent=True) or {}
-    emp_id  = body.get('emp_id', '').strip().upper()
-    phase   = body.get('phase', 0)
-    img_b64 = body.get('image', '')
-    pw      = body.get('pw', '')
-
-    if not emp_id or not img_b64:
-        return jsonify({'ok': False, 'msg': '필수 값 누락'})
-    if pw != _PW:
-        return jsonify({'ok': False, 'msg': '관리자 비밀번호 오류'})
-
-    try:
-        img_bytes = _b64.b64decode(img_b64.split(',')[-1])
-    except Exception:
-        return jsonify({'ok': False, 'msg': '이미지 디코딩 실패'})
-
-    try:
-        import db_pg
-        if not db_pg.is_available():
-            return jsonify({'ok': False, 'msg': 'DB 연결 불가 — 환경변수 확인'})
-        with db_pg.cursor() as cur:
-            cur.execute(
-                "INSERT INTO face_pending (emp_id, phase, image_data) VALUES (%s, %s, %s)",
-                (emp_id, int(phase), img_bytes))
-        return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'msg': str(e)[:80]})
 
 
 @app.route('/api/meal_checkin', methods=['POST'])
@@ -1854,24 +1630,6 @@ def api_meal_checkin():
         with _lock:
             _cache.pop(f'meal_{ds}', None)
         return jsonify({'ok': True, 'name': emp_name, 'dept': dept})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)})
-
-
-@app.route('/api/save_face_descriptor', methods=['POST'])
-def api_save_face_descriptor():
-    body       = request.get_json(silent=True) or {}
-    if body.get('pw', '') != MENU_PW:
-        return jsonify({'ok': False, 'error': '비밀번호 오류'})
-    emp_id     = body.get('emp_id', '').strip()
-    name       = body.get('name', '').strip()
-    factory    = body.get('factory', '').strip()
-    descriptor = body.get('descriptor', [])
-    if not emp_id or not isinstance(descriptor, list) or len(descriptor) != 128:
-        return jsonify({'ok': False, 'error': '잘못된 데이터'})
-    try:
-        save_face_descriptor(emp_id, name, factory, descriptor)
-        return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
 
