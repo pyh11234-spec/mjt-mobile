@@ -194,37 +194,31 @@ def login():
         return render_template('login.html', err='blocked', next='/')
 
     emp_id = request.form.get('emp_id', '').strip().upper()
-    phone4 = request.form.get('phone4', '').strip()
-    code   = request.form.get('code', '').strip()
+    pin    = request.form.get('pin', '').strip().upper()
     nxt    = request.form.get('next', '/') or '/'
 
-    # ① 회사 공통 코드 검증
-    if not MOBILE_AUTH_CODE or code != MOBILE_AUTH_CODE:
-        _record_failure(ip)
-        _log_access(emp_id or '?', ip, '/login', success=False)
-        return render_template('login.html', err='wrong_code',
-                               next=nxt, emp_id=emp_id)
-
-    # ② 사번 + active 검증
+    # ① 사번 + active 검증
     emp = _verify_emp_active(emp_id)
     if not emp:
         _record_failure(ip)
-        _log_access(emp_id, ip, '/login', success=False)
+        _log_access(emp_id or '?', ip, '/login', success=False)
         return render_template('login.html', err='not_emp',
                                next=nxt, emp_id=emp_id)
 
-    # ③ 휴대폰 끝 4자리 검증
-    db_last4 = _phone_last4(emp.get('phone', ''))
-    if not db_last4:
-        # DB에 전화번호 없는 사원 → 관리자에게 문의 안내
+    # ② 개인 PIN 검증 (사원 SSoT: employees.pin) — 대리신청 억제
+    import db_pg
+    row = db_pg.query_one(
+        "SELECT pin FROM employees WHERE UPPER(emp_id)=%s AND active=TRUE",
+        (emp_id,)) if db_pg.is_available() else None
+    if not row or not (row.get('pin') or '').strip():
         _record_failure(ip)
         _log_access(emp_id, ip, '/login', success=False)
-        return render_template('login.html', err='no_phone',
+        return render_template('login.html', err='no_pin',
                                next=nxt, emp_id=emp_id)
-    if phone4 != db_last4:
+    if (row['pin'] or '').strip().upper() != pin:
         _record_failure(ip)
         _log_access(emp_id, ip, '/login', success=False)
-        return render_template('login.html', err='wrong_phone',
+        return render_template('login.html', err='wrong_pin',
                                next=nxt, emp_id=emp_id)
 
     # 통과 → 세션 발급
@@ -1684,111 +1678,7 @@ def get_weekend_duty_near(ds: str) -> dict:
     return result
 
 
-# ── 근태 신청 (모바일) ────────────────────────────────────────────
-@app.route('/attendance_request')
-def attendance_request():
-    ds     = date.today().strftime('%Y-%m-%d')
-    emps   = get_employees()
-    op     = get_op_settings()
-    # 이번 주말 당직자 조회 (특근 신청서용)
-    duty   = get_weekend_duty_near(ds)
-    menu_type = op.get('식당유형', '식당')  # '식당' or '중국집'
-    return render_template('attendance_request.html',
-                           today_ds=ds,
-                           employees=emps,
-                           duty=duty,
-                           menu_type=menu_type,
-                           op=op)
-
-
-@app.route('/api/attendance_request', methods=['POST'])
-def api_attendance_request():
-    body     = request.get_json(silent=True) or {}
-    emp_id   = body.get('emp_id', '').strip()
-    ds       = body.get('date', '').strip()
-    att_type = body.get('att_type', '').strip()
-    value    = body.get('value', '')
-    memo     = body.get('memo', '').strip()
-    approver = body.get('approver', '').strip()  # 주 52H/64H 초과 시 승인자 성명
-
-    if not emp_id or not ds or not att_type:
-        return jsonify({'ok': False, 'error': '필수 항목 누락'})
-
-    try:
-        datetime.strptime(ds, '%Y-%m-%d')
-    except ValueError:
-        return jsonify({'ok': False, 'error': '날짜 형식 오류'})
-
-    emps = get_employees()
-    emp  = next((e for e in emps if str(e.get('사원번호', '')).strip() == emp_id), None)
-    if not emp:
-        return jsonify({'ok': False, 'error': '사원 미등록'})
-
-    # ── 주 52H/64H 경고 (잔업/특근만) ────────────────────────
-    if att_type in ATT_CAT_OT:
-        try:
-            val_f = float(value)
-        except Exception:
-            val_f = 0.0
-        year  = int(ds[:4]); month = int(ds[5:7])
-        day   = int(ds[8:10])
-        fw    = date(year, month, 1).weekday()
-        target_wk = (day + fw - 1) // 7 + 1
-        att_rows = get_att_records(year, month)
-        cur_ot = 0.0; cur_lv_h = 0.0
-        for r in att_rows:
-            if str(r.get('사원번호','')).strip() != emp_id:
-                continue
-            try: d2 = int(str(r.get('일자','')).split('-')[-1])
-            except: continue
-            wk = (d2 + fw - 1) // 7 + 1
-            if wk != target_wk: continue
-            atype2 = str(r.get('근태유형','')).strip()
-            try: v = float(r.get('값', 0) or 0)
-            except: v = 0.0
-            if atype2 in ATT_CAT_OT:    cur_ot   += v
-            elif atype2 in ATT_CAT_LEAVE: cur_lv_h += v * 8
-        new_ot  = cur_ot + val_f
-        avail52 = OT_DANGER_H + cur_lv_h
-        avail64 = OT_MAX64_H  + cur_lv_h
-        if new_ot >= avail64:
-            limit_h = 64; required = True
-        elif new_ot >= avail52:
-            limit_h = 52; required = True
-        else:
-            limit_h = 0;  required = False
-        if required and not approver:
-            return jsonify({
-                'ok': False,
-                'need_approval': True,
-                'limit_h': limit_h,
-                'new_ot': round(new_ot, 1),
-                'avail_h': int(avail64 if limit_h == 64 else avail52),
-                'wk_no': target_wk,
-                'error': f'주 {limit_h}시간 한도 초과 — 상위 관리자 승인이 필요합니다.'
-            })
-        if required and approver:
-            memo = (memo + ' ' if memo else '') + f'[승인:{approver}/{limit_h}H초과]'
-
-    try:
-        year  = int(ds[:4])
-        month = int(ds[5:7])
-        now_s = datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')
-        sh    = _open_sh()
-        ws    = sh.worksheet('근태기록')
-        ws.append_row([
-            year, month, ds,
-            'MJ 1공장' if emp_id.upper().startswith('M') else 'SCS 2공장',
-            emp.get('부서명', ''),
-            emp_id, emp.get('성명', ''), emp.get('직급', ''),
-            att_type, value, memo, '모바일신청', now_s
-        ], value_input_option='USER_ENTERED')
-        with _lock:
-            _cache.pop(f'att_{year}_{month}', None)
-        return jsonify({'ok': True, 'name': emp.get('성명', '')})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)})
-
+# ── 근태 신청은 공정 PC 전용 — 모바일 제거(v1.9). 모바일은 식수 신청만 ──
 
 # ── 외부손님 신청 (모바일) ────────────────────────────────────────
 @app.route('/guest_request')

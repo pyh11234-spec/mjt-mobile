@@ -42,12 +42,6 @@
       "short_name": "외부손님",
       "url": "/guest_request",
       "icons": [{"src": "/static/icons/icon-192.png", "sizes": "192x192"}]
-    },
-    {
-      "name": "근태 신청",
-      "short_name": "근태",
-      "url": "/attendance_request",
-      "icons": [{"src": "/static/icons/icon-192.png", "sizes": "192x192"}]
     }
   ]
 }

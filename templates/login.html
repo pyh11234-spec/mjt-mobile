@@ -143,23 +143,20 @@
 
 <div class="card">
   <h2>로그인</h2>
-  <p class="help">3단계 인증 후 30일간 자동 유지됩니다.</p>
+  <p class="help">사번 + 개인 PIN으로 로그인합니다. (30일 자동 유지)</p>
 
   <div class="step-badges">
     <span class="step-badge done">① 사번</span>
-    <span class="step-badge done">② 휴대폰 끝 4자리</span>
-    <span class="step-badge done">③ 회사 코드</span>
+    <span class="step-badge done">② 개인 PIN</span>
   </div>
 
-  {% if err == 'wrong_code' %}
-  <div class="err">⚠ 회사 코드가 일치하지 않습니다.</div>
+  {% if err == 'wrong_pin' %}
+  <div class="err">⚠ 사번 또는 PIN이 올바르지 않습니다.</div>
   {% elif err == 'not_emp' %}
   <div class="err">⚠ 등록되지 않은 사번이거나 사용 정지된 사번입니다.</div>
-  {% elif err == 'wrong_phone' %}
-  <div class="err">⚠ 휴대폰 끝 4자리가 일치하지 않습니다.</div>
-  {% elif err == 'no_phone' %}
-  <div class="err">⚠ 전화번호가 등록되지 않은 사번입니다.<br>
-       관리자(M008)에게 문의하세요.</div>
+  {% elif err == 'no_pin' %}
+  <div class="err">⚠ PIN이 발급되지 않은 사번입니다.<br>
+       관리자에게 PIN 발급을 문의하세요.</div>
   {% elif err == 'blocked' %}
   <div class="err">⚠ 5회 연속 실패로 30분간 차단되었습니다.<br>
        잠시 후 다시 시도해 주세요.</div>
@@ -175,15 +172,10 @@
            required maxlength="20" autofocus
            autocomplete="username" inputmode="text">
 
-    <label>② 휴대폰 끝 4자리</label>
-    <input name="phone4" type="tel" required maxlength="4"
-           inputmode="numeric" pattern="[0-9]{4}"
-           placeholder="1234"
-           autocomplete="off">
-
-    <label>③ 회사 공통 코드</label>
-    <input name="code" type="password" required
-           autocomplete="current-password">
+    <label>② 개인 PIN (관리자 발급 · 예: A123)</label>
+    <input name="pin" type="password" required maxlength="8"
+           placeholder="••••" autocomplete="current-password"
+           autocapitalize="characters">
 
     <button type="submit">로그인 →</button>
   </form>
