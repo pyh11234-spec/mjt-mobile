@@ -426,6 +426,60 @@ def save_today_menu(ds: str, menu: str):
     with _lock:
         _cache.pop(f'menu_{ds}', None)
 
+
+def get_wkend_plan() -> list:
+    """다가오는(오늘 이후) 특근 식사 운영일 목록.
+    '특근운영설정' 시트 [날짜, mode, 지원금, 안내] 에서 mode가 '없음'/빈값이 아닌 날짜만."""
+    def _f():
+        try:
+            sh   = _open_sh()
+            rows = sh.worksheet('특근운영설정').get_all_values()[1:]
+        except Exception:
+            return []
+        today = date.today()
+        out = []
+        for r in rows:
+            if len(r) < 2 or not r[0].strip():
+                continue
+            ds   = r[0].strip()
+            mode = r[1].strip()
+            if mode in ('', '없음'):
+                continue
+            try:
+                d = date.fromisoformat(ds)
+            except ValueError:
+                continue
+            if d < today:                       # 지난 날짜는 신청 불가
+                continue
+            support = int(r[2]) if len(r) > 2 and r[2].strip().isdigit() else 0
+            notice  = r[3].strip() if len(r) > 3 else ''
+            wd = '월화수목금토일'[d.weekday()]
+            out.append({'date': ds, 'weekday': wd, 'mode': mode,
+                        'support': support, 'notice': notice})
+        out.sort(key=lambda x: x['date'])
+        return out[:6]
+    return _cached('wkend_plan', _f, ttl=180)
+
+
+def get_chinese_menus() -> list:
+    """'중국집메뉴' 시트 [메뉴, 가격, 사용(Y)] 에서 사용중인 메뉴만."""
+    def _f():
+        try:
+            sh   = _open_sh()
+            rows = sh.worksheet('중국집메뉴').get_all_values()[1:]
+        except Exception:
+            return []
+        out = []
+        for r in rows:
+            if len(r) >= 3 and r[2].strip().upper() == 'Y':
+                try:
+                    out.append({'name': r[0].strip(), 'price': int(r[1].strip())})
+                except ValueError:
+                    pass
+        return out
+    return _cached('chinese_menus', _f, ttl=300)
+
+
 def get_meal_today(ds: str) -> dict:
     # 중식신청:   [날짜, 시간, 공장, 사원번호, 성명, 부서, 상태]
     # 중식실식수: [날짜, 시간, 유형, 사원번호, 성명, 부서, 직급, 메모, 공장]
@@ -1556,7 +1610,9 @@ def checkin():
     # 얼굴인식 제거 — 로그인(세션) 기반 식수 신청 페이지로 전환
     return render_template('checkin.html',
                            emp_name=session.get('emp_name', ''),
-                           emp_id=session.get('emp_id', ''))
+                           emp_id=session.get('emp_id', ''),
+                           wkend_plan=get_wkend_plan(),
+                           chinese_menus=get_chinese_menus())
 
 
 @app.route('/register_face')
@@ -1624,6 +1680,70 @@ def api_meal_checkin():
         with _lock:
             _cache.pop(f'meal_{ds}', None)
         return jsonify({'ok': True, 'name': emp_name, 'dept': dept})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+# ── 특근(토·일) 식사 사전신청 (모바일) ──────────────────────────────
+@app.route('/api/wkend_request', methods=['POST'])
+def api_wkend_request():
+    body     = request.get_json(silent=True) or {}
+    emp_id   = (session.get('emp_id') or '').strip()   # 로그인 본인만 — 대리신청 차단
+    req_date = (body.get('date') or '').strip()
+    menu_in  = (body.get('menu') or '').strip()
+
+    if not emp_id:
+        return jsonify({'ok': False, 'error': '로그인이 필요합니다'})
+    if not req_date:
+        return jsonify({'ok': False, 'error': '신청할 날짜를 선택하세요'})
+
+    # 운영 설정(구내/중국집·지원금) 확인 — 운영일이 아니면 거부
+    setting = next((p for p in get_wkend_plan() if p['date'] == req_date), None)
+    if not setting:
+        return jsonify({'ok': False, 'error': '해당 날짜는 특근 식사 미운영이거나 지난 날짜입니다'})
+
+    mode    = setting['mode']
+    support = setting['support']
+
+    # 메뉴·금액 (PC 식당과 동일 계산식: co_pay=min(가격,지원), per_pay=초과분)
+    if mode == '중국집':
+        menus = {m['name']: m['price'] for m in get_chinese_menus()}
+        if not menus:
+            return jsonify({'ok': False, 'error': '등록된 중국집 메뉴가 없습니다'})
+        if menu_in not in menus:
+            return jsonify({'ok': False, 'error': '메뉴를 선택하세요'})
+        menu    = menu_in
+        price   = menus[menu_in]
+        co_pay  = min(price, support)
+        per_pay = max(0, price - support)
+    else:                                   # 구내식당
+        menu    = '구내식당'
+        price   = support
+        co_pay  = support
+        per_pay = 0
+
+    emps     = get_employees()
+    emp      = next((e for e in emps if str(e.get('사원번호', '')).strip() == emp_id), {})
+    emp_name = emp.get('성명', '')
+    dept     = emp.get('부서명', '')
+    rank     = emp.get('직급', '')
+
+    now_t = datetime.now(KST).strftime('%H:%M:%S')
+    try:
+        sh = _open_sh()
+        ws = sh.worksheet('특근식사')
+        for r in ws.get_all_values()[1:]:        # 중복 신청 방지(같은 날짜+사번)
+            if len(r) >= 3 and r[0].strip() == req_date and r[2].strip() == emp_id:
+                return jsonify({'ok': False, 'error': '이미 신청됨'})
+        # 행 포맷: [날짜,시간,사번,성명,부서,직급,mode,menu,price,co_pay,per_pay,count,reason,no_meal]
+        ws.append_row(
+            [req_date, now_t, emp_id, emp_name, dept, rank,
+             mode, menu, price, co_pay, per_pay, 1, '웹신청', ''],
+            value_input_option='USER_ENTERED')
+        with _lock:
+            _cache.pop(f'meal_{req_date}', None)
+        return jsonify({'ok': True, 'name': emp_name, 'mode': mode,
+                        'menu': menu, 'per_pay': per_pay})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
 

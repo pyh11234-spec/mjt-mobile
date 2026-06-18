@@ -29,6 +29,41 @@
     </button>
   </div>
 
+  {% if wkend_plan %}
+  <div class="c-card mb-3" style="padding:18px">
+    <div style="font-size:15px;font-weight:700;color:#C084FC;margin-bottom:4px">🔧 토·일 특근 식사 신청</div>
+    <div style="font-size:12px;color:#94A3B8;margin-bottom:14px">특근 예정일의 식사를 미리 신청하세요.</div>
+
+    {% for w in wkend_plan %}
+    <div class="wk-item">
+      <div class="wk-hd">
+        <span class="wk-date">{{ w.date[5:] }} ({{ w.weekday }})</span>
+        {% if w.mode == '중국집' %}
+        <span class="wk-tag" style="background:#2D1B4E;color:#C084FC">중국집</span>
+        {% else %}
+        <span class="wk-tag" style="background:#1E3A5F;color:#60A5FA">구내식당</span>
+        {% endif %}
+        <span class="wk-sup">지원 {{ "{:,}".format(w.support) }}원</span>
+      </div>
+      {% if w.notice %}<div class="wk-notice">{{ w.notice }}</div>{% endif %}
+      {% if w.mode == '중국집' %}
+      <select class="wk-menu" data-date="{{ w.date }}">
+        <option value="">메뉴 선택…</option>
+        {% for m in chinese_menus %}
+        <option value="{{ m.name }}">{{ m.name }} ({{ "{:,}".format(m.price) }}원{% if m.price > w.support %} · 개인추가 {{ "{:,}".format(m.price - w.support) }}원{% endif %})</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+      <button class="meal-btn wknd" onclick="applyWk('{{ w.date }}', '{{ w.mode }}', this)">
+        <span class="ic">🔧</span>
+        <span class="tx"><b>{{ w.date[5:] }} 특근 식사 신청</b><small>{{ w.mode }}{% if w.mode == '중국집' %} · 메뉴 선택 필요{% endif %}</small></span>
+        <span class="ar">›</span>
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <div style="text-align:center;font-size:12px;color:#475569;margin-top:6px">
     ※ 얼굴인식 등록·체크인은 식당 공용 PC에서 진행합니다.
   </div>
@@ -47,6 +82,16 @@
   .meal-btn:disabled{ opacity:.5; }
   .meal-btn.lunch{ border-color:#0EA5E9; }
   .meal-btn.dinner{ border-color:#F59E0B; }
+  .meal-btn.wknd{ border-color:#7C3AED; margin-bottom:0; }
+  .wk-item{ border:1px solid #334155; border-radius:12px; padding:13px 14px; margin-bottom:12px; }
+  .wk-item:last-child{ margin-bottom:0; }
+  .wk-hd{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .wk-date{ font-weight:700; font-size:15px; }
+  .wk-tag{ font-size:11px; padding:2px 8px; border-radius:6px; }
+  .wk-sup{ margin-left:auto; font-size:12px; color:#94A3B8; }
+  .wk-notice{ font-size:11px; color:#64748B; margin-bottom:8px; }
+  .wk-menu{ width:100%; background:#0F172A; color:#F1F5F9; border:1px solid #334155;
+            border-radius:8px; padding:9px; font-size:14px; margin-bottom:10px; }
   .meal-btn .ic{ font-size:30px; line-height:1; }
   .meal-btn .tx{ display:flex; flex-direction:column; gap:2px; }
   .meal-btn .tx b{ font-size:16px; }
@@ -79,6 +124,33 @@ async function apply(action, btn){
       toast('✅ ' + (d.name || '') + ' – ' + label + ' 신청 완료!', 'ok');
     }else{
       toast('⚠ ' + (d.error || '오류가 발생했습니다'), 'err');
+    }
+  }catch(e){
+    toast('⚠ 네트워크 오류', 'err');
+  }
+  setTimeout(()=>{ btn.disabled = false; }, 1500);
+}
+async function applyWk(d, mode, btn){
+  let menu = '';
+  if(mode === '중국집'){
+    const sel = document.querySelector('.wk-menu[data-date="'+d+'"]');
+    menu = sel ? sel.value : '';
+    if(!menu){ toast('⚠ 중국집 메뉴를 선택하세요', 'err'); return; }
+  }
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/wkend_request', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ date:d, menu })   // emp_id는 서버가 세션에서 가져감
+    });
+    const r = await res.json();
+    if(r.ok){
+      const extra = (r.per_pay && r.per_pay > 0)
+        ? ' (개인추가 ' + r.per_pay.toLocaleString() + '원)' : '';
+      toast('✅ ' + (r.name || '') + ' – ' + d.slice(5) + ' 특근식사 신청 완료' + extra, 'ok');
+    }else{
+      toast('⚠ ' + (r.error || '오류가 발생했습니다'), 'err');
     }
   }catch(e){
     toast('⚠ 네트워크 오류', 'err');
