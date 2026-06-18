@@ -362,7 +362,35 @@ def _clear_cache():
 
 # ── 데이터 함수 ──────────────────────────────────────────────────
 def get_employees():
+    """재직 사원 목록 — 단일 원본(SSoT)은 Supabase employees. (로그인 인증과 같은 원본.)
+    db_pg 불가 시에만 옛 Google Sheets 사원마스터로 폴백.
+    반환 dict 키는 기존 소비처 호환 위해 한글(사원번호/성명/부서명/직급/성별/공장/입사일/사용여부/전화번호/email/pin)."""
     def _f():
+        # 1순위 — Supabase (사원 SSoT). 동결된 Sheets 사원마스터를 읽던 split-brain 제거.
+        try:
+            import db_pg
+            if db_pg.is_available():
+                rows = db_pg.query(
+                    "SELECT emp_id, name, dept, rank, gender, factory, "
+                    "join_date, phone, email, pin FROM employees "
+                    "WHERE active = TRUE ORDER BY emp_id")
+                if rows:
+                    return [{
+                        '사원번호': r.get('emp_id', '') or '',
+                        '성명':     r.get('name', '') or '',
+                        '부서명':   r.get('dept', '') or '',
+                        '직급':     r.get('rank', '') or '',
+                        '성별':     r.get('gender', '') or '',
+                        '공장':     r.get('factory', '') or '',
+                        '입사일':   str(r.get('join_date', '') or ''),
+                        '사용여부': 'Y',
+                        '전화번호': r.get('phone', '') or '',
+                        'email':    r.get('email', '') or '',
+                        'pin':      r.get('pin', '') or '',
+                    } for r in rows]
+        except Exception:
+            pass
+        # 폴백 — Supabase 불가 시에만 옛 Sheets 사원마스터
         sh = _open_sh()
         rows = sh.worksheet('사원마스터').get_all_records()
         return [r for r in rows if str(r.get('사용여부', 'Y')).strip() == 'Y']
