@@ -412,6 +412,13 @@ def get_op_settings() -> dict:
     def _f():
         result = dict(_OP_DEFAULTS)
         try:
+            import db_pg
+            if db_pg.is_available():
+                result.update({k: v for k, v in db_pg.op_settings().items() if v})
+                return result
+        except Exception:
+            pass
+        try:
             sh   = _open_sh()
             rows = sh.worksheet('운영설정').get_all_values()[1:]
             for r in rows:
@@ -425,6 +432,12 @@ def get_op_settings() -> dict:
 
 def get_today_menu(ds: str) -> str:
     def _f():
+        try:
+            import db_pg
+            if db_pg.is_available():
+                return db_pg.today_menu(ds)
+        except Exception:
+            pass
         try:
             sh = _open_sh()
             rows = sh.worksheet('오늘점심메뉴').get_all_values()[1:]
@@ -459,6 +472,14 @@ def get_wkend_plan() -> list:
     """다가오는(오늘 이후) 특근 식사 운영일 목록.
     '특근운영설정' 시트 [날짜, mode, 지원금, 안내] 에서 mode가 '없음'/빈값이 아닌 날짜만."""
     def _f():
+        # 1순위: Supabase (식수 SSoT)
+        try:
+            import db_pg
+            if db_pg.is_available():
+                return db_pg.wkend_plan(date.today().isoformat())
+        except Exception:
+            pass
+        # 폴백: Sheets
         try:
             sh   = _open_sh()
             rows = sh.worksheet('특근운영설정').get_all_values()[1:]
@@ -490,8 +511,14 @@ def get_wkend_plan() -> list:
 
 
 def get_chinese_menus() -> list:
-    """'중국집메뉴' 시트 [메뉴, 가격, 사용(Y)] 에서 사용중인 메뉴만."""
+    """사용중인 중국집 메뉴. 1순위 Supabase, 폴백 Sheets."""
     def _f():
+        try:
+            import db_pg
+            if db_pg.is_available():
+                return db_pg.chinese_menus()
+        except Exception:
+            pass
         try:
             sh   = _open_sh()
             rows = sh.worksheet('중국집메뉴').get_all_values()[1:]
@@ -515,6 +542,14 @@ def get_meal_today(ds: str) -> dict:
     # 특근식사:   [날짜, 시간, 사원번호, 성명, 부서, 직급, mode, 메뉴, ...]
     # 외부손님:   [방문날짜, 등록날짜, 시간, 담당자id, 담당자성명, 부서, 회사명, 손님성명, 사유]
     def _f():
+        # 1순위: Supabase (식수 SSoT) — DATE 컬럼이라 시트 날짜정규화 불필요
+        try:
+            import db_pg
+            if db_pg.is_available():
+                return db_pg.meal_today(ds)
+        except Exception:
+            pass
+        # 폴백: Sheets
         sh = _open_sh()
         out = {}
         def _get(name, date_col=0):
@@ -1683,7 +1718,22 @@ def api_meal_checkin():
     gender   = emp.get('성별', '')
     factory  = 'MJ 1공장' if emp_id.upper().startswith('M') else 'SCS 2공장'
 
+    # 저녁 모드: 구내식당이면 '구내', 도시락이면 성별 보존
+    _dmode = settings.get('저녁모드', '구내식당')
+    g = '구내' if _dmode == '구내식당' else gender
     try:
+        import db_pg
+        if db_pg.is_available():
+            if action == '중식신청':
+                ok = db_pg.add_lunch_req(ds, factory, emp_id, emp_name, dept, '신청')
+            else:
+                ok = db_pg.add_dinner(ds, emp_id, emp_name, dept, rank, g, '웹신청')
+            if not ok:
+                return jsonify({'ok': False, 'error': '이미 신청됨'})
+            with _lock:
+                _cache.pop(f'meal_{ds}', None)
+            return jsonify({'ok': True, 'name': emp_name, 'dept': dept})
+        # 폴백: Sheets
         sh = _open_sh()
         if action == '중식신청':
             ws   = sh.worksheet('중식신청')
@@ -1699,9 +1749,6 @@ def api_meal_checkin():
             for r in rows:
                 if len(r) >= 3 and r[0].strip() == ds and r[2].strip() == emp_id:
                     return jsonify({'ok': False, 'error': '이미 신청됨'})
-            # 저녁 모드: 구내식당이면 '구내'(점심처럼 단순), 도시락이면 성별 보존
-            _dmode = settings.get('저녁모드', '구내식당')
-            g = '구내' if _dmode == '구내식당' else gender
             ws.append_row([ds, now_s, emp_id, emp_name, dept, rank, g, '웹신청'],
                           value_input_option='USER_ENTERED')
 
@@ -1758,6 +1805,17 @@ def api_wkend_request():
 
     now_t = datetime.now(KST).strftime('%H:%M:%S')
     try:
+        import db_pg
+        if db_pg.is_available():
+            ok = db_pg.add_weekend(req_date, emp_id, emp_name, dept, rank, mode, menu,
+                                   price, co_pay, per_pay, 1, False, '웹신청')
+            if not ok:
+                return jsonify({'ok': False, 'error': '이미 신청됨'})
+            with _lock:
+                _cache.pop(f'meal_{req_date}', None)
+            return jsonify({'ok': True, 'name': emp_name, 'mode': mode,
+                            'menu': menu, 'per_pay': per_pay})
+        # 폴백: Sheets
         sh = _open_sh()
         ws = sh.worksheet('특근식사')
         for r in ws.get_all_values()[1:]:        # 중복 신청 방지(같은 날짜+사번)
@@ -1866,9 +1924,14 @@ def api_guest_request():
              mgr_id, mgr.get('성명',''), mgr.get('부서명',''),
              company, gname, reason, str(cnt)]
     try:
-        sh = _open_sh()
-        sh.worksheet('외부손님').append_row(row, value_input_option='RAW')
-        _guest_cache.append(row)
+        import db_pg
+        if db_pg.is_available():
+            db_pg.add_guest(visit_dt, mgr_id, mgr.get('성명', ''), mgr.get('부서명', ''),
+                            company, gname, reason, cnt, '사전')
+        else:
+            sh = _open_sh()
+            sh.worksheet('외부손님').append_row(row, value_input_option='RAW')
+            _guest_cache.append(row)
         # 캐시 무효화
         with _lock:
             for k in list(_cache.keys()):
