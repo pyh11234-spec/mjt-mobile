@@ -150,7 +150,7 @@ def chinese_menus(active_only: bool = True) -> list:   # 구 호환
 
 def wkend_plan(from_date: str, limit: int = 8) -> list:
     """from_date 이후 운영하는 특근일(오전/오후 중 하나라도 '없음' 아님). checkin.html 호환."""
-    rows = query("SELECT meal_date,am_mode,pm_mode,deadline,support,notice FROM weekend_settings "
+    rows = query("SELECT meal_date,am_mode,pm_mode,deadline,day_deadline,support,notice FROM weekend_settings "
                  "WHERE meal_date >= %s AND (COALESCE(am_mode,'없음')<>'없음' OR COALESCE(pm_mode,'없음')<>'없음') "
                  "ORDER BY meal_date LIMIT %s", (from_date, limit))
     out = []
@@ -162,16 +162,25 @@ def wkend_plan(from_date: str, limit: int = 8) -> list:
             wd = ''
         out.append({'date': ds, 'weekday': wd, 'am_mode': r['am_mode'] or '없음',
                     'pm_mode': r['pm_mode'] or '없음', 'deadline': r['deadline'] or '',
+                    'day_deadline': r.get('day_deadline') or '',
                     'support': r['support'] or 0, 'notice': r['notice'] or ''})
     return out
 
 
 def wkend_setting(ds: str):
-    r = query_one("SELECT am_mode,pm_mode,deadline,support,notice FROM weekend_settings WHERE meal_date=%s", (ds,))
+    r = query_one("SELECT am_mode,pm_mode,deadline,day_deadline,support,notice FROM weekend_settings WHERE meal_date=%s", (ds,))
     if not r:
         return None
     return {'am_mode': r['am_mode'] or '없음', 'pm_mode': r['pm_mode'] or '없음',
-            'deadline': r['deadline'] or '', 'support': r['support'] or 0, 'notice': r['notice'] or ''}
+            'deadline': r['deadline'] or '', 'day_deadline': r.get('day_deadline') or '',
+            'support': r['support'] or 0, 'notice': r['notice'] or ''}
+
+
+def is_weekend_worker(ds: str, emp_id: str) -> bool:
+    """ds에 att_type='특근' 으로 근태 등록된 근로자인지(특근식사 자격 게이트)."""
+    return query_one("SELECT 1 FROM attendance_records "
+                     "WHERE att_date=%s AND emp_id=%s AND att_type='특근' LIMIT 1",
+                     (ds, emp_id)) is not None
 
 
 def has_lunch_req(ds: str, emp_id: str) -> bool:

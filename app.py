@@ -187,7 +187,7 @@ def login():
         # 이미 로그인된 상태면 다음 페이지로
         if session.get('emp_id') and not err:
             return redirect(nxt)
-        return render_template('login.html', err=err, next=nxt, version='1.4.1')
+        return render_template('login.html', err=err, next=nxt, version='1.4.2')
 
     ip = _ip()
     if _is_blocked(ip):
@@ -1838,27 +1838,49 @@ def api_wkend_request():
     if not req_date:
         return jsonify({'ok': False, 'error': '신청할 날짜를 선택하세요'})
 
-    # 운영 설정(구내/중국집·지원금) 확인 — 운영일이 아니면 거부
+    # 운영 설정(구내/도시락/배달·지원금) 확인 — 운영일이 아니면 거부
     setting = next((p for p in get_wkend_plan() if p['date'] == req_date), None)
     if not setting:
         return jsonify({'ok': False, 'error': '해당 날짜는 특근 식사 미운영이거나 지난 날짜입니다'})
 
-    mode    = setting['mode']
+    # ★특근 근로신청자만 신청 가능 — 근태 att_type='특근' 등록자 한정
+    try:
+        import db_pg as _dbp
+        if _dbp.is_available() and not _dbp.is_weekend_worker(req_date, emp_id):
+            return jsonify({'ok': False, 'error': '오늘 특근 근로 신청자가 아닙니다(근태 특근 등록 필요)'})
+    except Exception:
+        pass
+
+    # 당일 신청 제한시각(day_deadline 'HH:MM') — 당일 그 시각 지나면 차단
+    ddl = (setting.get('day_deadline') or '').strip()
+    if ddl and req_date == datetime.now(KST).strftime('%Y-%m-%d'):
+        try:
+            if datetime.now(KST).strftime('%H:%M') > ddl:
+                return jsonify({'ok': False, 'error': f'당일 신청 시간이 지났습니다(제한 {ddl})'})
+        except Exception:
+            pass
+
+    # 운영 형태: 신규 스키마는 am_mode/pm_mode — 운영 중인 형태를 채택(레거시 'mode' 폴백)
+    mode    = (setting.get('mode') or '').strip()
+    if not mode or mode == '없음':
+        am = (setting.get('am_mode') or '없음'); pm = (setting.get('pm_mode') or '없음')
+        mode = am if am != '없음' else (pm if pm != '없음' else '구내식당')
     support = setting['support']
 
     # 메뉴·금액 (PC 식당과 동일 계산식: co_pay=min(가격,지원), per_pay=초과분)
-    if mode == '중국집':
+    if mode in ('배달', '중국집'):
         menus = {m['name']: m['price'] for m in get_chinese_menus()}
         if not menus:
-            return jsonify({'ok': False, 'error': '등록된 중국집 메뉴가 없습니다'})
+            return jsonify({'ok': False, 'error': '등록된 배달 메뉴가 없습니다'})
         if menu_in not in menus:
             return jsonify({'ok': False, 'error': '메뉴를 선택하세요'})
+        mode    = '배달'
         menu    = menu_in
         price   = menus[menu_in]
         co_pay  = min(price, support)
         per_pay = max(0, price - support)
-    else:                                   # 구내식당
-        menu    = '구내식당'
+    else:                                   # 구내식당 / 도시락
+        menu    = mode
         price   = support
         co_pay  = support
         per_pay = 0
