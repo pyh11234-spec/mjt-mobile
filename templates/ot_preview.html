@@ -291,7 +291,26 @@
     ❌ 최종 반려
   </button>
   {% endif %}
+
+  <!-- 버튼: 결재 되돌리기 (관리자 — 한 단계) -->
+  {% if appr.status != '대기' %}
+  <button class="btn-appr" style="background:#B45309" onclick="doRevert()">
+    ↩ 결재 되돌리기 (한 단계)
+  </button>
+  {% endif %}
 </div>
+
+<!-- 결재 되돌리기 폼 (관리자 비번) -->
+<form method="post" action="/ot_schedule/revert" id="revert-form" style="display:none">
+  <input type="hidden" name="week_key" value="{{ week_key }}">
+  <input type="hidden" name="factory"  value="{{ fac }}">
+  <input type="hidden" name="ref_ds"   value="{{ ref_ds }}">
+  <input type="hidden" name="fac"      value="{{ fac }}">
+  {% for d in date_labels %}
+  <input type="hidden" name="gl_{{ d.ds.replace('-','') }}" value="{{ d.gl }}">
+  {% endfor %}
+  <input type="hidden" name="pw" id="revert-pw" value="">
+</form>
 
 <!-- GL 입력 폼 -->
 <form class="gl-form" method="get" action="/ot_schedule/preview" id="gl-form">
@@ -488,6 +507,13 @@ function applyScale(s) {
   doc.style.transform = 'scale(' + _scale + ')';
   doc.style.marginBottom = ((_scale - 1) * doc.offsetHeight) + 'px';
   document.getElementById('zl').textContent = Math.round(_scale * 100) + '%';
+}
+function doRevert() {
+  if (!confirm('결재를 한 단계 되돌립니다.\n(최종승인→1차완료, 1차완료→대기)\n계속하시겠습니까?')) return;
+  var pw = prompt('관리자 비밀번호를 입력하세요');
+  if (pw === null || pw === '') return;
+  document.getElementById('revert-pw').value = pw;
+  document.getElementById('revert-form').submit();
 }
 function zoomIn()  { applyScale(_scale + 0.1); }
 function zoomOut() { applyScale(_scale - 0.1); }

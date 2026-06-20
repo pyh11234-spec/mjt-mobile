@@ -1325,6 +1325,12 @@ _APPR_SHEET = '특근결재'
 # 컬럼: 주차키|공장|상태|1차자|1차시|1차결|1차사유|최종자|최종시|최종결|최종사유
 
 def get_approval(week_key: str, factory: str) -> dict:
+    # 결재 SSoT = Supabase ot_approvals(데스크탑과 공유). 캐시 없이 즉시(데스크탑 승인 즉시 반영).
+    if db_pg.is_available():
+        try:
+            return db_pg.get_approval(week_key, factory)
+        except Exception:
+            pass
     def _f():
         try:
             sh   = _open_sh()
@@ -1347,6 +1353,14 @@ def _invalidate_approval(week_key, factory):
         _cache.pop(f'appr_{week_key}_{factory}', None)
 
 def save_approval(week_key, factory, level, decision, reason, approver_name):
+    # 결재 SSoT = Supabase. 데스크탑과 동일 테이블(ot_approvals)에 기록.
+    if db_pg.is_available():
+        try:
+            db_pg.save_approval(week_key, factory, level, decision, reason, approver_name)
+            _invalidate_approval(week_key, factory)
+            return
+        except Exception:
+            pass
     sh   = _open_sh()
     ws   = sh.worksheet(_APPR_SHEET)
     now  = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -1398,10 +1412,19 @@ def ot_approve():
     if factory not in APPROVAL_CFG or level not in APPROVAL_CFG[factory]:
         return redirect(back + '&appr_err=설정오류')
 
-    correct_pw = APPROVAL_CFG[factory][level]['pw']
-    if not correct_pw:
-        return redirect(back + '&appr_err=비밀번호미설정')
-    if pw != correct_pw:
+    # 비번 검증: 결재자별 비번(approval_lines, 총관리자 설정) 우선.
+    #   미설정이면 → 환경변수 결재비번 → 그래도 없으면 관리자비번(MENU_PW) 폴백.
+    ok_pw = False
+    try:
+        if db_pg.is_available() and db_pg.has_approver_pw(factory, level):
+            ok_pw = db_pg.check_approver_pw(factory, level, pw)
+        else:
+            env_pw = APPROVAL_CFG[factory][level]['pw']
+            ok_pw = (pw == env_pw) if env_pw else (pw == MENU_PW)
+    except Exception:
+        env_pw = APPROVAL_CFG[factory][level]['pw']
+        ok_pw = (pw == env_pw) if env_pw else (pw == MENU_PW)
+    if not ok_pw:
         return redirect(back + '&appr_err=비밀번호오류')
 
     state = get_approval(week_key, factory)
@@ -1411,13 +1434,56 @@ def ot_approve():
     if level == 'ceo' and status != '1차완료':
         return redirect(back + '&appr_err=1차결재필요')
 
+    # 결재자 이름: approval_lines 우선(총관리자가 수정 가능), 없으면 기존 cfg.
     name = APPROVAL_CFG[factory][level]['name']
+    try:
+        if db_pg.is_available():
+            _ln = db_pg.approval_line(factory, level)
+            if _ln and _ln['name']:
+                name = _ln['name']
+    except Exception:
+        pass
     try:
         save_approval(week_key, factory, level, decision, reason, name)
     except Exception as e:
         return redirect(back + f'&appr_err={str(e)[:30]}')
 
     return redirect(back + '&appr_ok=1')
+
+
+@app.route('/ot_schedule/revert', methods=['POST'])
+def ot_revert():
+    """결재 한 단계 되돌리기 — 관리자 비번(MENU_PW)으로 정정."""
+    week_key = request.form.get('week_key', '')
+    factory  = request.form.get('factory', 'MJ')
+    pw       = request.form.get('pw', '')
+    ref_ds   = request.form.get('ref_ds', week_key)
+    fac      = request.form.get('fac', factory)
+    back = f'/ot_schedule/preview?week={ref_ds}&fac={fac}'
+    for key, val in request.form.items():
+        if key.startswith('gl_'):
+            back += f'&{key}={val}'
+    if pw != MENU_PW:
+        return redirect(back + '&appr_err=관리자비밀번호오류')
+    try:
+        if db_pg.is_available():
+            db_pg.revert_approval(week_key, factory)
+        else:
+            # Sheets 폴백: 최종 처리됐으면 1차완료로, 아니면 행 삭제(대기)
+            sh = _open_sh(); ws = sh.worksheet(_APPR_SHEET); vals = ws.get_all_values()
+            for i, r in enumerate(vals[1:], start=2):
+                if len(r) >= 2 and r[0].strip() == week_key and r[1].strip() == factory:
+                    ceo_dec = r[9].strip() if len(r) > 9 else ''
+                    if ceo_dec:
+                        ws.update(range_name=f'C{i}', values=[['1차완료']])
+                        ws.update(range_name=f'H{i}:K{i}', values=[['', '', '', '']])
+                    else:
+                        ws.delete_rows(i)
+                    break
+        _invalidate_approval(week_key, factory)
+    except Exception as e:
+        return redirect(back + f'&appr_err={str(e)[:30]}')
+    return redirect(back + '&appr_ok=되돌림')
 
 
 def get_company_events(year, month):
