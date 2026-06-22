@@ -246,6 +246,24 @@ def api_health():
     return jsonify({'ok': True, 'ts': datetime.now().isoformat()})
 
 
+@app.route('/cron/unlock')
+def cron_unlock():
+    """로그인 5회 실패 30분 잠금 해제(IP별 인메모리). 토큰 보호.
+    특정 IP만: ?ip=1.2.3.4 / 전체: 파라미터 없음.
+    관리자가 직원 잠금을 즉시 풀 때 사용(재배포 없이)."""
+    token = (request.args.get('token') or '').strip()
+    expect = (os.environ.get('CRON_TOKEN') or '').strip()
+    if not expect or token != expect:
+        return jsonify({'ok': False, 'error': 'invalid token'}), 403
+    ip = (request.args.get('ip') or '').strip()
+    if ip:
+        existed = _login_attempts.pop(ip, None) is not None
+        return jsonify({'ok': True, 'cleared_ip': ip, 'existed': existed})
+    n = len(_login_attempts)
+    _login_attempts.clear()
+    return jsonify({'ok': True, 'cleared_all': n})
+
+
 @app.route('/cron/duty-mail')
 def cron_duty_mail():
     """주간 당직 메일 자동발송(서버 측, PC 무관).
