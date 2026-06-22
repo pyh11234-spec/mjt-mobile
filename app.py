@@ -64,7 +64,7 @@ _login_lock = threading.Lock()
 
 # 인증 면제 경로 (로그인/정적 자산 등)
 _AUTH_EXEMPT_PREFIX = ('/login', '/logout', '/static', '/api/health',
-                       '/favicon.ico')
+                       '/favicon.ico', '/cron/')
 
 
 def _ip():
@@ -244,6 +244,71 @@ def logout():
 def api_health():
     """헬스체크 (UptimeRobot 용 — 인증 면제)."""
     return jsonify({'ok': True, 'ts': datetime.now().isoformat()})
+
+
+@app.route('/cron/duty-mail')
+def cron_duty_mail():
+    """주간 당직 메일 자동발송(서버 측, PC 무관).
+
+    외부 무료 스케줄러(cron-job.org)가 매주 월요일 호출.
+    - 토큰 보호: ?token=<CRON_TOKEN 환경변수>
+    - 멱등: duty_mail_log(ISO주) 마커로 주 1회만 발송(여러 번 호출돼도 1회).
+    - 수신자: 당직 순번 명단 전원(이번 주 당직표 공유). 내용 핵심=금주 당직.
+    """
+    token = (request.args.get('token') or '').strip()
+    expect = (os.environ.get('CRON_TOKEN') or '').strip()
+    if not expect or token != expect:
+        return jsonify({'ok': False, 'error': 'invalid token'}), 403
+
+    force = request.args.get('force') == '1'
+    try:
+        import db_pg
+        import mailer
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'import: {e}'}), 500
+    if not db_pg.is_available():
+        return jsonify({'ok': False, 'error': 'DB 미연결'}), 500
+    if not mailer.is_configured():
+        return jsonify({'ok': False, 'error': '메일 계정 미설정(MAIL_USER/MAIL_APP_PW)'}), 500
+
+    today = date.today()
+    iso = today.isocalendar()
+    week_key = f'{iso[0]}-W{iso[1]:02d}'
+    if not force and db_pg.duty_mail_already_sent(week_key):
+        return jsonify({'ok': True, 'skipped': '이번 주 이미 발송됨', 'week': week_key})
+
+    mon = today - timedelta(days=today.weekday())
+    sun = mon + timedelta(days=6)
+    duties = db_pg.duties_between(mon.isoformat(), sun.isoformat())
+    if not duties:
+        return jsonify({'ok': True, 'skipped': '이번 주 배정된 당직 없음', 'week': week_key})
+
+    by_name = db_pg.emails_by_name()
+    names = db_pg.duty_roster_names()
+    if not names:  # 명단 없으면 그 주 배정자 본인
+        names = []
+        for d in duties:
+            if d['name'] and d['name'] not in names:
+                names.append(d['name'])
+    targets = [(nm, by_name[nm]) for nm in names if nm in by_name]
+    no_email = [nm for nm in names if nm not in by_name]
+    if not targets:
+        return jsonify({'ok': False, 'skipped': f'수신 이메일 없음({", ".join(no_email)})',
+                        'week': week_key})
+
+    lines = [f"  · {d['date']} ({d['weekday']}) — {d['name']}" for d in duties]
+    subject = f'[MJT] 이번 주 당직 안내 ({mon:%m/%d}~{sun:%m/%d})'
+    body_base = (f"[이번 주 당직 안내]  {mon:%Y-%m-%d} ~ {sun:%m-%d}\n\n"
+                 + "\n".join(lines)
+                 + "\n\n해당 일자 당직 근무 바랍니다. 변경 시 협의 후 계획표 수정 필수."
+                 + "\n\n※ 본 메일은 매주 자동 발송됩니다(회신 불가).\n— MJT 통합관리")
+    items = [(em, subject, f"{nm} 님,\n\n{body_base}") for nm, em in targets]
+    ok, fail, errs = mailer.send_bulk(items)
+    if ok > 0:
+        db_pg.mark_duty_mail_sent(week_key, ok, 'server')
+    return jsonify({'ok': fail == 0, 'week': week_key, 'sent': ok, 'fail': fail,
+                    'recipients': [nm for nm, _ in targets],
+                    'no_email': no_email, 'errors': errs[:10]})
 
 # ── 결재 설정 ────────────────────────────────────────────────────
 # render.com 환경변수에 APPROVE_GRP_MJ_PW / APPROVE_CEO_MJ_PW /

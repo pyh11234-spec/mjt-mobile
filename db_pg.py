@@ -183,6 +183,43 @@ def is_weekend_worker(ds: str, emp_id: str) -> bool:
                      (ds, emp_id)) is not None
 
 
+# ── 주간 당직 메일 자동발송 (서버 측) ─────────────────────────────
+def duties_between(d_from: str, d_to: str) -> list:
+    """기간 내 당직 배정(날짜 오름차순)."""
+    rows = query("SELECT duty_date, weekday, emp_name FROM duty_assignments "
+                 "WHERE duty_date BETWEEN %s AND %s ORDER BY duty_date", (d_from, d_to))
+    return [{'date': _ymd(r['duty_date']), 'weekday': r['weekday'] or '',
+             'name': r['emp_name'] or ''} for r in rows]
+
+
+def duty_roster_names() -> list:
+    rows = query("SELECT emp_name FROM duty_roster ORDER BY no NULLS LAST, emp_name")
+    return [r['emp_name'] for r in rows if r.get('emp_name')]
+
+
+def emails_by_name() -> dict:
+    """재직자 성명→이메일(이메일 있는 사람만)."""
+    rows = query("SELECT name, email FROM employees "
+                 "WHERE active=true AND COALESCE(email,'')<>''")
+    out = {}
+    for r in rows:
+        nm = (r.get('name') or '').strip()
+        em = (r.get('email') or '').strip()
+        if nm and em:
+            out.setdefault(nm, em)
+    return out
+
+
+def duty_mail_already_sent(week_key: str) -> bool:
+    return query_one("SELECT 1 FROM duty_mail_log WHERE week_key=%s", (week_key,)) is not None
+
+
+def mark_duty_mail_sent(week_key: str, count: int, source: str = 'server') -> None:
+    execute("INSERT INTO duty_mail_log (week_key, count, source) VALUES (%s,%s,%s) "
+            "ON CONFLICT (week_key) DO UPDATE SET count=EXCLUDED.count, "
+            "source=EXCLUDED.source, sent_at=NOW()", (week_key, count, source))
+
+
 def has_lunch_req(ds: str, emp_id: str) -> bool:
     return query_one("SELECT 1 FROM lunch_requests WHERE req_date=%s AND emp_id=%s LIMIT 1", (ds, emp_id)) is not None
 
