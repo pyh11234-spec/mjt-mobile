@@ -21,12 +21,17 @@
       <span class="tx"><b>중식 신청</b><small>오늘 점심 구내식당</small></span>
       <span class="ar">›</span>
     </button>
+    <button class="cancel-link" onclick="cancelMeal('중식취소', this)">✕ 중식 신청 취소</button>
 
     <button class="meal-btn dinner" onclick="apply('저녁도시락', this)">
       <span class="ic">🍱</span>
       <span class="tx"><b>저녁 식사 신청</b><small>저녁 도시락 / 구내</small></span>
       <span class="ar">›</span>
     </button>
+    <button class="cancel-link" onclick="cancelMeal('저녁취소', this)">✕ 저녁 식사 신청 취소</button>
+    <div style="font-size:11px;color:#64748B;margin-top:8px;line-height:1.5">
+      ※ 취소는 <b>신청 마감 시간 전</b>까지만 가능합니다.
+    </div>
   </div>
 
   {% if wkend_plan %}
@@ -107,6 +112,10 @@
   .toast.show{ opacity:1; }
   .toast.ok{ border-color:#22C55E; color:#22C55E; }
   .toast.err{ border-color:#EF4444; color:#EF4444; }
+  .cancel-link{ display:block; width:100%; margin:-4px 0 12px; padding:8px;
+    background:transparent; border:1px solid #3F2A2A; border-radius:10px;
+    color:#FCA5A5; font-size:13px; cursor:pointer; }
+  .cancel-link:active{ background:#2A1A1A; }
 </style>
 
 <script>
@@ -128,6 +137,21 @@ async function apply(action, btn){
   }catch(e){
     toast('⚠ 네트워크 오류', 'err');
   }
+  setTimeout(()=>{ btn.disabled = false; }, 1500);
+}
+async function cancelMeal(action, btn){
+  const label = (action === '중식취소') ? '중식' : '저녁 식사';
+  if(!confirm(label + ' 신청을 취소할까요?')) return;
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/meal_checkin', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action })
+    });
+    const d = await res.json();
+    if(d.ok){ toast('✅ ' + label + ' 신청을 취소했습니다.', 'ok'); }
+    else{ toast('⚠ ' + (d.error || '취소할 신청이 없습니다'), 'err'); }
+  }catch(e){ toast('⚠ 네트워크 오류', 'err'); }
   setTimeout(()=>{ btn.disabled = false; }, 1500);
 }
 async function applyWk(d, mode, btn){

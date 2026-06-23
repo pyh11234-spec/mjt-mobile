@@ -289,7 +289,7 @@ def cron_duty_mail():
     if not mailer.is_configured():
         return jsonify({'ok': False, 'error': '메일 계정 미설정(MAIL_USER/MAIL_APP_PW)'}), 500
 
-    today = date.today()
+    today = _today_kst()
     iso = today.isocalendar()
     week_key = f'{iso[0]}-W{iso[1]:02d}'
     if not force and db_pg.duty_mail_already_sent(week_key):
@@ -491,6 +491,11 @@ def get_att_records(year, month):
 def _now_kst() -> str:
     return datetime.now(KST).strftime('%H:%M')
 
+
+def _today_kst() -> date:
+    """운영 기준일 = 한국시간(KST) 날짜. (Render는 UTC라 새벽/아침엔 서버 date가 어긋남)"""
+    return datetime.now(KST).date()
+
 def get_op_settings() -> dict:
     def _f():
         result = dict(_OP_DEFAULTS)
@@ -559,7 +564,7 @@ def get_wkend_plan() -> list:
         try:
             import db_pg
             if db_pg.is_available():
-                return db_pg.wkend_plan(date.today().isoformat())
+                return db_pg.wkend_plan(_today_kst().isoformat())
         except Exception:
             pass
         # 폴백: Sheets
@@ -568,7 +573,7 @@ def get_wkend_plan() -> list:
             rows = sh.worksheet('특근운영설정').get_all_values()[1:]
         except Exception:
             return []
-        today = date.today()
+        today = _today_kst()
         out = []
         for r in rows:
             if len(r) < 2 or not r[0].strip():
@@ -803,7 +808,7 @@ def get_day_label(ds: str):
     return name
 
 def _week_range(ref_ds=None):
-    ref = date.fromisoformat(ref_ds) if ref_ds else date.today()
+    ref = date.fromisoformat(ref_ds) if ref_ds else _today_kst()
     mon = ref - timedelta(days=ref.weekday())
     return mon, mon + timedelta(days=6)
 
@@ -841,7 +846,7 @@ def _ot_time(hours):
 # ── 라우트 ──────────────────────────────────────────────────────
 @app.route('/')
 def index():
-    today = date.today()
+    today = _today_kst()
     ds    = today.strftime('%Y-%m-%d')
     year, month = today.year, today.month
     try:
@@ -892,7 +897,7 @@ def index():
 
 @app.route('/overtime')
 def overtime():
-    today   = date.today()
+    today   = _today_kst()
     year    = int(request.args.get('year',  today.year))
     month   = int(request.args.get('month', today.month))
     factory = request.args.get('fac', '전체')
@@ -934,7 +939,7 @@ def overtime():
 
 @app.route('/meal')
 def meal():
-    today = date.today()
+    today = _today_kst()
     ds    = request.args.get('date', today.strftime('%Y-%m-%d'))
     try:
         meal_data = get_meal_today(ds)
@@ -968,7 +973,7 @@ def meal():
 
 @app.route('/menu', methods=['GET', 'POST'])
 def menu_edit():
-    today = date.today()
+    today = _today_kst()
     ds    = today.strftime('%Y-%m-%d')
     error = ''
     saved = False
@@ -1006,7 +1011,7 @@ def menu_edit():
 
 @app.route('/ot_schedule')
 def ot_schedule():
-    today  = date.today()
+    today  = _today_kst()
     ds     = today.strftime('%Y-%m-%d')
     ref_ds = request.args.get('week', ds)
 
@@ -1099,7 +1104,7 @@ def _ot_week_data(ref_ds):
 
 @app.route('/ot_schedule/preview')
 def ot_schedule_preview():
-    ref_ds  = request.args.get('week', date.today().strftime('%Y-%m-%d'))
+    ref_ds  = request.args.get('week', _today_kst().strftime('%Y-%m-%d'))
     fac     = request.args.get('fac', 'MJ')   # 'MJ' or 'SCS'
     appr_err= request.args.get('appr_err', '')
     appr_ok = request.args.get('appr_ok', '')
@@ -1243,7 +1248,7 @@ def ot_schedule_preview():
             ceo_stamp   = ceo_stamp,
             appr_err    = appr_err,
             appr_ok     = appr_ok,
-            today_str   = date.today().strftime('%Y-%m-%d'),
+            today_str   = _today_kst().strftime('%Y-%m-%d'),
             menu_type   = menu_type,
             duty_list   = duty_list,
         )
@@ -1253,7 +1258,7 @@ def ot_schedule_preview():
 
 @app.route('/ot_schedule/export')
 def ot_schedule_export():
-    ref_ds = request.args.get('week', date.today().strftime('%Y-%m-%d'))
+    ref_ds = request.args.get('week', _today_kst().strftime('%Y-%m-%d'))
     fac    = request.args.get('fac', 'MJ')
     if fac not in ('MJ', 'SCS'):
         fac = 'MJ'
@@ -1300,7 +1305,7 @@ def ot_schedule_export():
 
         ws.merge_cells('A3:H3')
         dc = ws['A3']
-        period_str = f'{mon.strftime("%Y년 %m월 %d일")} ~ {sun.strftime("%m월 %d일")}  |  작성일 {date.today().strftime("%Y-%m-%d")}'
+        period_str = f'{mon.strftime("%Y년 %m월 %d일")} ~ {sun.strftime("%m월 %d일")}  |  작성일 {_today_kst().strftime("%Y-%m-%d")}'
         dc.value     = period_str
         dc.font      = Font(size=10, color='555555')
         dc.alignment = aln('center')
@@ -1605,7 +1610,7 @@ def save_company_event(ds, ev_type, content, note=''):
 # ── 삼겹살데이 (월 2회 외부 부페) ──────────────────────────────
 def get_samgyup_dates():
     """다가오는 삼겹살데이 날짜 (회사일정 유형='삼겹살데이', 오늘 이후)."""
-    today = date.today().strftime('%Y-%m-%d')
+    today = _today_kst().strftime('%Y-%m-%d')
     def _f():
         try:
             sh   = _open_sh()
@@ -1715,7 +1720,7 @@ def delete_company_event(ds, content):
 
 @app.route('/calendar', methods=['GET', 'POST'])
 def calendar_view():
-    today = date.today()
+    today = _today_kst()
     year  = int(request.args.get('year',  today.year))
     month = int(request.args.get('month', today.month))
     error = ''
@@ -1842,21 +1847,38 @@ def api_meal_checkin():
 
     if not emp_id:
         return jsonify({'ok': False, 'error': '로그인이 필요합니다'})
-    if action not in ('중식신청', '저녁도시락'):
+    if action not in ('중식신청', '저녁도시락', '중식취소', '저녁취소'):
         return jsonify({'ok': False, 'error': '잘못된 요청'})
 
     settings = get_op_settings()
     now      = _now_kst()
-    if action == '중식신청':
+    # 신청/취소 모두 같은 마감 시간 전까지만 허용(마감 후엔 주방 집계 확정)
+    if action in ('중식신청', '중식취소'):
         deadline = settings.get('중식신청마감', _OP_DEFAULTS['중식신청마감'])
         if now > deadline:
-            return jsonify({'ok': False, 'error': f'중식 사전 신청 마감 시간이 지났습니다. (마감 {deadline})'})
-    elif action == '저녁도시락':
+            return jsonify({'ok': False, 'error': f'중식 신청/취소 마감 시간이 지났습니다. (마감 {deadline})'})
+    elif action in ('저녁도시락', '저녁취소'):
         deadline = settings.get('저녁마감', _OP_DEFAULTS['저녁마감'])
         if now > deadline:
-            return jsonify({'ok': False, 'error': f'저녁 식사 신청 마감 시간이 지났습니다. (마감 {deadline})'})
+            return jsonify({'ok': False, 'error': f'저녁 신청/취소 마감 시간이 지났습니다. (마감 {deadline})'})
 
-    ds    = date.today().strftime('%Y-%m-%d')
+    ds    = _today_kst().strftime('%Y-%m-%d')
+
+    # ── 취소 처리 ──
+    if action in ('중식취소', '저녁취소'):
+        try:
+            import db_pg
+            if not db_pg.is_available():
+                return jsonify({'ok': False, 'error': '취소는 통합 DB 연결 시에만 가능합니다.'})
+            n = (db_pg.cancel_lunch_req(ds, emp_id) if action == '중식취소'
+                 else db_pg.cancel_dinner(ds, emp_id))
+            with _lock:
+                _cache.pop(f'meal_{ds}', None)
+            if n and n > 0:
+                return jsonify({'ok': True, 'cancelled': True})
+            return jsonify({'ok': False, 'error': '신청 내역이 없습니다.'})
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)})
     now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     emps     = get_employees()
@@ -2060,7 +2082,7 @@ def get_weekend_duty_near(ds: str) -> dict:
 # ── 외부손님 신청 (모바일) ────────────────────────────────────────
 @app.route('/guest_request')
 def guest_request():
-    ds   = date.today().strftime('%Y-%m-%d')
+    ds   = _today_kst().strftime('%Y-%m-%d')
     emps = get_employees()
     return render_template('guest_request.html',
                            today_ds=ds, employees=emps)
@@ -2089,7 +2111,7 @@ def api_guest_request():
     if not mgr:
         return jsonify({'ok': False, 'error': f'담당자 미등록: {mgr_id}'})
 
-    now_d = date.today().strftime('%Y-%m-%d')
+    now_d = _today_kst().strftime('%Y-%m-%d')
     now_t = datetime.now(KST).strftime('%H:%M:%S')
     row   = [visit_dt, now_d, now_t,
              mgr_id, mgr.get('성명',''), mgr.get('부서명',''),
@@ -2116,8 +2138,8 @@ def api_guest_request():
 @app.route('/api/duty')
 def api_duty():
     """당직자 목록 API."""
-    year  = request.args.get('year',  type=int, default=date.today().year)
-    month = request.args.get('month', type=int, default=date.today().month)
+    year  = request.args.get('year',  type=int, default=_today_kst().year)
+    month = request.args.get('month', type=int, default=_today_kst().month)
     return jsonify(get_duty_officers(year, month))
 
 

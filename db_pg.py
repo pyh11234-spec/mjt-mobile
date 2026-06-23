@@ -246,6 +246,16 @@ def add_dinner(ds, emp_id, name, dept, rank='', gender='', reason='') -> bool:
     return True
 
 
+def cancel_lunch_req(ds: str, emp_id: str) -> int:
+    """본인 중식 사전신청 취소(마감 전). 반환=삭제 건수."""
+    return execute("DELETE FROM lunch_requests WHERE req_date=%s AND emp_id=%s", (ds, emp_id))
+
+
+def cancel_dinner(ds: str, emp_id: str) -> int:
+    """본인 저녁 신청 취소(마감 전). 반환=삭제 건수."""
+    return execute("DELETE FROM dinner_requests WHERE req_date=%s AND emp_id=%s", (ds, emp_id))
+
+
 def has_weekend(ds: str, emp_id: str) -> bool:
     return query_one("SELECT 1 FROM weekend_meals WHERE meal_date=%s AND emp_id=%s LIMIT 1", (ds, emp_id)) is not None
 
