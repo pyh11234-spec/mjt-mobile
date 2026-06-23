@@ -1,4 +1,4 @@
-// MJT SmartFactory Service Worker
+// MJT SmartCompany Service Worker
 // 정적 자산 캐시 + 네트워크 우선 (API/페이지) 전략
 const CACHE_NAME = 'mjt-v1.0.0';
 const STATIC_ASSETS = [
