@@ -243,7 +243,7 @@ def logout():
 @app.route('/api/health')
 def api_health():
     """헬스체크 (UptimeRobot 용 — 인증 면제)."""
-    return jsonify({'ok': True, 'ts': datetime.now().isoformat()})
+    return jsonify({'ok': True, 'ts': datetime.now(KST).isoformat()})
 
 
 @app.route('/cron/unlock')
@@ -541,7 +541,7 @@ def save_today_menu(ds: str, menu: str):
     sh = _open_sh()
     ws = sh.worksheet('오늘점심메뉴')
     rows = ws.get_all_values()
-    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    now_s = datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')
     for i, r in enumerate(rows):
         if i == 0:
             continue
@@ -889,7 +889,7 @@ def index():
             samgyup_next = samgyup_next,
             my_samgyup   = my_samgyup,
             samgyup_sum  = samgyup_sum,
-            updated = datetime.now().strftime('%H:%M'),
+            updated = datetime.now(KST).strftime('%H:%M'),
         )
     except Exception as e:
         return render_template('error.html', error=str(e))
@@ -931,7 +931,7 @@ def overtime():
             n_max64=n_max64, n_danger=n_danger, n_warn=n_warn, n_safe=n_safe,
             prev_y=prev_y, prev_m=prev_m,
             next_y=next_y, next_m=next_m,
-            updated=datetime.now().strftime('%H:%M'),
+            updated=datetime.now(KST).strftime('%H:%M'),
         )
     except Exception as e:
         return render_template('error.html', error=str(e))
@@ -965,7 +965,7 @@ def meal():
             dinner_m=dinner_m, dinner_f=dinner_f,
             wkend_g=wkend_g, wkend_c=wkend_c,
             guests=guests,
-            updated=datetime.now().strftime('%H:%M'),
+            updated=datetime.now(KST).strftime('%H:%M'),
         )
     except Exception as e:
         return render_template('error.html', error=str(e))
@@ -1074,7 +1074,7 @@ def ot_schedule():
             emp_week_ot   = dict(emp_week_ot),
             duty_map      = duty_map,
             menu_type     = menu_type,
-            updated       = datetime.now().strftime('%H:%M'),
+            updated       = datetime.now(KST).strftime('%H:%M'),
         )
     except Exception as e:
         return render_template('error.html', error=str(e))
@@ -1451,7 +1451,7 @@ def save_approval(week_key, factory, level, decision, reason, approver_name):
             pass
     sh   = _open_sh()
     ws   = sh.worksheet(_APPR_SHEET)
-    now  = datetime.now().strftime('%Y-%m-%d %H:%M')
+    now  = datetime.now(KST).strftime('%Y-%m-%d %H:%M')
     rows = ws.get_all_values()
     row_idx = None
     for i, r in enumerate(rows[1:], start=2):
@@ -1598,7 +1598,7 @@ def get_company_events(year, month):
 def save_company_event(ds, ev_type, content, note=''):
     sh = _open_sh()
     ws = sh.worksheet('회사일정')
-    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    now_s = datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')
     ws.append_row([ds, ev_type, content, note, now_s, '웹'], value_input_option='USER_ENTERED')
     with _lock:
         try:
@@ -1686,7 +1686,7 @@ def api_samgyup_attend():
         emps = get_employees()
         emp  = next((e for e in emps
                      if str(e.get('사원번호', '')).strip().upper() == emp_id), {})
-        now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        now_s = datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')
         rows = ws.get_all_values()
         for i, r in enumerate(rows[1:], start=2):
             if len(r) >= 2 and r[0].strip() == ds and r[1].strip().upper() == emp_id:
@@ -1795,7 +1795,7 @@ def calendar_view():
         today=today, prev_y=prev_y, prev_m=prev_m,
         next_y=next_y, next_m=next_m,
         error=error, saved=saved,
-        updated=datetime.now().strftime('%H:%M'),
+        updated=datetime.now(KST).strftime('%H:%M'),
     )
 
 
@@ -1816,7 +1816,7 @@ def api_employees():
 @app.route('/api/refresh')
 def api_refresh():
     _clear_cache()
-    return jsonify({'ok': True, 'ts': datetime.now().strftime('%H:%M:%S')})
+    return jsonify({'ok': True, 'ts': datetime.now(KST).strftime('%H:%M:%S')})
 
 
 # ── 식수 신청 (모바일: 로그인 기반 — 얼굴인식은 식당 PC 전담, ArcFace) ──────
@@ -1879,7 +1879,7 @@ def api_meal_checkin():
             return jsonify({'ok': False, 'error': '신청 내역이 없습니다.'})
         except Exception as e:
             return jsonify({'ok': False, 'error': str(e)})
-    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    now_s = datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')
 
     emps     = get_employees()
     emp      = next((e for e in emps if str(e.get('사원번호', '')).strip() == emp_id), {})
@@ -2179,7 +2179,7 @@ def equipment_dashboard():
         """)
         return render_template('equipment.html',
                                kpi=kpi, issues=issues, by_process=by_process,
-                               updated=datetime.now().strftime('%H:%M'))
+                               updated=datetime.now(KST).strftime('%H:%M'))
     except Exception as e:
         return render_template('error.html', error=f'설비 대시보드: {e}')
 
@@ -2224,7 +2224,7 @@ def equipment_search():
         return render_template('equipment_search.html',
                                kw=kw, sel_eq=eq, results=results,
                                machines=machines,
-                               updated=datetime.now().strftime('%H:%M'))
+                               updated=datetime.now(KST).strftime('%H:%M'))
     except Exception as e:
         return render_template('error.html', error=f'검색: {e}')
 
@@ -2262,7 +2262,7 @@ def process_ops():
             "GROUP BY d.category, c.reason_name, c.category "
             "ORDER BY SUM(d.minutes) DESC LIMIT 12")
         return render_template('process.html', kpi=kpi, procs=procs, downs=downs,
-                               updated=datetime.now().strftime('%H:%M'))
+                               updated=datetime.now(KST).strftime('%H:%M'))
     except Exception as e:
         return render_template('error.html', error=f'공정 운영: {e}')
 
@@ -2292,7 +2292,7 @@ def capa_board():
         }
         return render_template('capa.html', cases=cases, kpi=kpi, cur_status=st,
                                statuses=['전체', '접수', '원인분석', '조치중', '효과검증', '완료', '반려'],
-                               updated=datetime.now().strftime('%H:%M'))
+                               updated=datetime.now(KST).strftime('%H:%M'))
     except Exception as e:
         return render_template('error.html', error=f'CAPA: {e}')
 
@@ -2344,7 +2344,7 @@ def improvement_dashboard():
         return render_template('improvement.html',
                                kpi=kpi, years=years, qstats=qstats,
                                results=results, top=top,
-                               kw=kw, updated=datetime.now().strftime('%H:%M'))
+                               kw=kw, updated=datetime.now(KST).strftime('%H:%M'))
     except Exception as e:
         return render_template('error.html', error=f'개선제안 대시보드: {e}')
 
@@ -2559,7 +2559,7 @@ def improvement_stats():
                                annual_top_score=annual_top_score,
                                annual_top_impact=annual_top_impact,
                                years=years, sel_year=year, sel_quarter=quarter,
-                               updated=datetime.now().strftime('%H:%M'))
+                               updated=datetime.now(KST).strftime('%H:%M'))
     except Exception as e:
         return render_template('error.html', error=f'통계: {e}')
 

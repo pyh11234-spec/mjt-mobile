@@ -4,7 +4,19 @@ web_app용 PostgreSQL (Supabase) 연결 헬퍼.
 """
 import os, threading
 from contextlib import contextmanager
-from datetime import date as _date
+from datetime import date as _date, timezone as _timezone, timedelta as _timedelta
+
+_KST = _timezone(_timedelta(hours=9))
+
+
+def _to_kst(v):
+    """timestamptz(절대시각, UTC) → 한국시간으로 변환. naive/date는 그대로."""
+    if getattr(v, 'tzinfo', None) is not None:
+        try:
+            return v.astimezone(_KST)
+        except Exception:
+            return v
+    return v
 
 try:
     import psycopg
@@ -73,10 +85,12 @@ def execute(sql, params=None) -> int:
 # list 로 반환한다(소비처 무수정). 쓰기는 테이블에 직접 INSERT.
 # ══════════════════════════════════════════════════════════════════
 def _hms(v) -> str:
+    v = _to_kst(v)
     return v.strftime('%H:%M:%S') if hasattr(v, 'strftime') else (str(v) if v else '')
 
 
 def _ymd(v) -> str:
+    v = _to_kst(v)
     return v.strftime('%Y-%m-%d') if hasattr(v, 'strftime') else (str(v) if v else '')
 
 
