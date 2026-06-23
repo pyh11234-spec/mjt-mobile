@@ -81,10 +81,10 @@ def make_icon(size: int, fname: str, maskable: bool = False):
     d.text((tx + 2, ty + 2), text, font=font, fill=(0, 0, 0, 80))
     d.text((tx, ty), text, font=font, fill=NAVY)
 
-    # 하단 미니 라벨 "SmartFactory"
+    # 하단 미니 라벨 "SmartCompany"
     sub_font_size = max(8, int(card_size * 0.075))
     sub_font = _find_font(sub_font_size)
-    sub = 'SmartFactory'
+    sub = 'SmartCompany'
     sbbox = d.textbbox((0, 0), sub, font=sub_font)
     sw_ = sbbox[2] - sbbox[0]
     sx = card_x0 + (card_size - sw_) // 2 - sbbox[0]
