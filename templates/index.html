@@ -123,6 +123,26 @@
     {% endif %}
   </div>
 
+  <!-- 이번 달 행사 -->
+  {% if month_events %}
+  <div class="sec-lbl">이번 달 행사</div>
+  <div class="c-card mb-3" style="padding:4px 16px 8px">
+    {% for e in month_events %}
+    <div style="display:flex;align-items:center;gap:11px;padding:9px 0;{% if not loop.last %}border-bottom:1px solid var(--border);{% endif %}{% if e.ds < today_iso %}opacity:.45;{% endif %}">
+      <div style="min-width:46px;text-align:center;background:var(--gold-l);border-radius:8px;padding:5px 0">
+        <div style="font-size:16px;font-weight:800;color:var(--accent2);line-height:1.1">{{ e.ds[8:10] }}</div>
+        <div style="font-size:9px;color:var(--text3)">{{ e.ds[5:7] }}월</div>
+      </div>
+      <div style="flex:1">
+        <div style="font-size:14px;font-weight:600;color:var(--text)">{{ e.content }}</div>
+        {% if e.type or e.note %}<div style="font-size:11px;color:var(--text3);margin-top:1px">{{ e.type }}{% if e.note %} · {{ e.note }}{% endif %}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    <a href="/calendar" style="display:block;text-align:center;color:var(--accent);font-size:12px;padding:9px 0 3px;font-weight:600">전체 일정 보기 →</a>
+  </div>
+  {% endif %}
+
   <!-- 근태 KPI -->
   <div class="sec-lbl">{{ year }}년 {{ '%02d'|format(month) }}월 근태</div>
   <div class="c-card mb-3">

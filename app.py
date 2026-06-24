@@ -873,6 +873,12 @@ def index():
         samgyup_next  = samgyup_dates[0] if samgyup_dates else None
         samgyup_sum   = get_samgyup_summary(samgyup_next['date']) if samgyup_next else None
 
+        # 이번 달 행사 (회사일정, 5분 캐시 — 삼겹살데이는 별도 카드라 제외)
+        today_iso = ds
+        month_events = [e for e in get_company_events(year, month)
+                        if (e.get('type') or '') != '삼겹살데이']
+        month_events.sort(key=lambda e: e.get('ds', ''))
+
         # 응답할 설문 / 진행중 경조사 (홈 진입 배지)
         _eid = session.get('emp_id', '')
         try:
@@ -884,6 +890,7 @@ def index():
 
         return render_template('index.html',
             n_survey=n_survey, n_cond=n_cond, n_notice=n_notice,
+            month_events=month_events, today_iso=today_iso,
             today   = today.strftime('%Y년 %m월 %d일'),
             weekday = '월화수목금토일'[today.weekday()],
             year=year, month=month,
