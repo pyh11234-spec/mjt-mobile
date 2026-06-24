@@ -1073,6 +1073,19 @@ def m_notice(nid):
         return render_template('error.html', error=str(e))
 
 
+# ── 전체 메뉴 (하단 5탭 외 모든 기능을 여기로 — 앞으로 새 기능도 여기 추가) ──
+@app.route('/all')
+def m_all():
+    emp_id = session.get('emp_id')
+    try:
+        n_notice = db_pg.unread_notice_count(emp_id) if db_pg.is_available() else 0
+        n_survey = sum(1 for s in (db_pg.surveys_for(emp_id) if db_pg.is_available() else [])
+                       if not s.get('responded')) if db_pg.is_available() else 0
+    except Exception:
+        n_notice = n_survey = 0
+    return render_template('m_all.html', n_notice=n_notice, n_survey=n_survey)
+
+
 @app.route('/menu', methods=['GET', 'POST'])
 def menu_edit():
     today = _today_kst()

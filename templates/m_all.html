@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% set page = 'all' %}
+{% block content %}
+<div class="pg-hd">
+  <div><div class="pg-title">전체 메뉴</div><div class="pg-sub">모든 기능</div></div>
+  <a href="/" class="btn-ref">← 홈</a>
+</div>
+<div class="px-3 pt-3">
+<style>
+ .tgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:4px}
+ .tile{display:flex;flex-direction:column;align-items:center;gap:7px;padding:16px 6px;background:var(--card);border:1px solid var(--border);border-radius:14px;text-decoration:none;box-shadow:var(--shadow);position:relative}
+ .tile:active{transform:scale(.97)}
+ .tile-ico{font-size:28px;line-height:1}
+ .tile-lbl{font-size:12.5px;font-weight:700;color:var(--text);text-align:center;line-height:1.25}
+ .tbadge{position:absolute;top:7px;right:9px;background:var(--red);color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:10px}
+</style>
+
+  <div class="sec-lbl">내 일상</div>
+  <div class="tgrid">
+    <a href="/checkin" class="tile"><div class="tile-ico">🍚</div><div class="tile-lbl">식수신청</div></a>
+    <a href="/meal" class="tile"><div class="tile-ico">🍱</div><div class="tile-lbl">식수현황</div></a>
+    <a href="/notices" class="tile">{% if n_notice %}<span class="tbadge">{{ n_notice }}</span>{% endif %}<div class="tile-ico">📢</div><div class="tile-lbl">공지·게시판</div></a>
+    <a href="/surveys" class="tile">{% if n_survey %}<span class="tbadge">{{ n_survey }}</span>{% endif %}<div class="tile-ico">📋</div><div class="tile-lbl">설문·경조사</div></a>
+    <a href="/calendar" class="tile"><div class="tile-ico">📆</div><div class="tile-lbl">일정·행사</div></a>
+  </div>
+
+  <div class="sec-lbl">근무</div>
+  <div class="tgrid">
+    <a href="/overtime" class="tile"><div class="tile-ico">⏰</div><div class="tile-lbl">월별<br>연장근로</div></a>
+    <a href="/ot_schedule" class="tile"><div class="tile-ico">📅</div><div class="tile-lbl">연장근로<br>실시간</div></a>
+  </div>
+
+  <div class="sec-lbl">관리</div>
+  <div class="tgrid">
+    <a href="/menu" class="tile"><div class="tile-ico">📋</div><div class="tile-lbl">메뉴등록</div></a>
+    <a href="/equipment" class="tile"><div class="tile-ico">⚙️</div><div class="tile-lbl">설비PM</div></a>
+    <a href="/improvement" class="tile"><div class="tile-ico">💡</div><div class="tile-lbl">개선제안</div></a>
+    <a href="/process" class="tile"><div class="tile-ico">🏭</div><div class="tile-lbl">공정운영</div></a>
+    <a href="/capa" class="tile"><div class="tile-ico">🔧</div><div class="tile-lbl">CAPA</div></a>
+  </div>
+  <div style="height:24px"></div>
+</div>
+{% endblock %}

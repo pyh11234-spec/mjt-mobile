@@ -377,38 +377,20 @@
 
 <!-- 하단 네비게이션 -->
 <nav class="nav-btm">
-  <a href="/"             class="{% if page=='home'     %}active{% endif %}">
+  <a href="/"         class="{% if page=='home'    %}active{% endif %}">
     <span class="ico">🏠</span>대시보드
   </a>
-  <a href="/checkin"      class="{% if page=='checkin'  %}active{% endif %}">
-    <span class="ico">🍚</span>식수<br>신청
+  <a href="/checkin"  class="{% if page=='checkin' %}active{% endif %}">
+    <span class="ico">🍚</span>식수신청
   </a>
-  <a href="/overtime"     class="{% if page=='overtime' %}active{% endif %}">
-    <span class="ico">⏰</span>월별<br>연장근로
-  </a>
-  <a href="/ot_schedule"  class="{% if page=='schedule' %}active{% endif %}">
-    <span class="ico">📅</span>연장근로<br>실시간
-  </a>
-  <a href="/meal"         class="{% if page=='meal'     %}active{% endif %}">
+  <a href="/meal"     class="{% if page=='meal'    %}active{% endif %}">
     <span class="ico">🍱</span>식수현황
   </a>
-  <a href="/calendar"     class="{% if page=='calendar' %}active{% endif %}">
-    <span class="ico">📆</span>월중행사
+  <a href="/notices"  class="{% if page=='notices' %}active{% endif %}">
+    <span class="ico">📢</span>공지
   </a>
-  <a href="/menu"         class="{% if page=='menu'     %}active{% endif %}">
-    <span class="ico">📋</span>메뉴등록
-  </a>
-  <a href="/equipment" class="{% if page=='equipment' %}active{% endif %}">
-    <span class="ico">⚙</span>설비PM
-  </a>
-  <a href="/improvement" class="{% if page=='improvement' %}active{% endif %}">
-    <span class="ico">💡</span>개선제안
-  </a>
-  <a href="/process" class="{% if page=='process' %}active{% endif %}">
-    <span class="ico">🏭</span>공정운영
-  </a>
-  <a href="/capa" class="{% if page=='capa' %}active{% endif %}">
-    <span class="ico">🔧</span>CAPA*
+  <a href="/all"      class="{% if page=='all'     %}active{% endif %}">
+    <span class="ico">☰</span>전체
   </a>
 </nav>
 
