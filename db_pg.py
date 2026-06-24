@@ -456,3 +456,66 @@ def join_condolence(emp_id: str, eid: int, amount: int = 10000):
         cur.execute("INSERT INTO condolence_contributions (event_id, emp_id, amount, paid, created_at) "
                     "VALUES (%s,%s,%s, FALSE, now())", (eid, emp_id, amount))
     return True, '참여 완료'
+
+
+# ── 공지·게시판 (허브가 작성, 직원이 읽고 댓글) ──
+def notices_for(emp_id: str):
+    """이 직원 대상 게시중 공지 + 읽음여부 + 댓글수 (고정 우선·최신순)."""
+    if not emp_id:
+        return []
+    emp = query_one("SELECT dept, factory, biz_entity FROM employees WHERE UPPER(emp_id)=%s",
+                    (emp_id.strip().upper(),))
+    if not emp:
+        return []
+    rows = query("SELECT id,title,body,importance,target_type,target_value,pinned,created_by,created_at "
+                 "FROM notices WHERE status='게시중' ORDER BY pinned DESC, created_at DESC")
+    out = []
+    for n in rows:
+        tt, tv = (n.get('target_type') or 'all'), (n.get('target_value') or '')
+        if tt == 'dept' and (emp.get('dept') or '') != tv:
+            continue
+        if tt == 'factory' and (emp.get('factory') or '') != tv:
+            continue
+        if tt == 'biz' and (emp.get('biz_entity') or '') != tv:
+            continue
+        n['read'] = query_one("SELECT 1 FROM notice_reads WHERE notice_id=%s AND emp_id=%s",
+                              (n['id'], emp_id)) is not None
+        n['ncmt'] = query_one("SELECT count(*) c FROM notice_comments WHERE notice_id=%s", (n['id'],))['c']
+        out.append(n)
+    return out
+
+
+def notice_one(emp_id: str, nid: int):
+    for n in notices_for(emp_id):
+        if n['id'] == nid:
+            return n
+    return None
+
+
+def mark_notice_read(emp_id: str, nid: int):
+    if not emp_id:
+        return
+    if not query_one("SELECT 1 FROM notice_reads WHERE notice_id=%s AND emp_id=%s", (nid, emp_id)):
+        with cursor() as cur:
+            cur.execute("INSERT INTO notice_reads (notice_id, emp_id, read_at) VALUES (%s,%s, now())",
+                        (nid, emp_id))
+
+
+def notice_comments(nid: int):
+    return query("SELECT c.emp_id, c.body, c.created_at, e.name FROM notice_comments c "
+                 "LEFT JOIN employees e ON UPPER(e.emp_id)=UPPER(c.emp_id) "
+                 "WHERE c.notice_id=%s ORDER BY c.created_at", (nid,))
+
+
+def add_notice_comment(emp_id: str, nid: int, body: str):
+    body = (body or '').strip()
+    if not emp_id or not body:
+        return False
+    with cursor() as cur:
+        cur.execute("INSERT INTO notice_comments (notice_id, emp_id, body, created_at) "
+                    "VALUES (%s,%s,%s, now())", (nid, emp_id, body))
+    return True
+
+
+def unread_notice_count(emp_id: str):
+    return sum(1 for n in notices_for(emp_id) if not n.get('read'))

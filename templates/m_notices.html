@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% set page = 'notices' %}
+{% block content %}
+<div class="pg-hd">
+  <div><div class="pg-title">공지·게시판</div><div class="pg-sub">회사 소식</div></div>
+  <a href="/" class="btn-ref">← 홈</a>
+</div>
+<div class="px-3 pt-3">
+  {% if items %}
+    {% for n in items %}
+    <a href="/notice/{{ n.id }}" class="c-card mb-2" style="display:block;text-decoration:none;padding:14px 16px;{% if n.importance=='중요' %}border-left:3px solid var(--red){% elif not n.read %}border-left:3px solid var(--accent){% endif %}">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        {% if n.pinned %}<span>📌</span>{% endif %}
+        {% if n.importance=='중요' %}<span style="background:var(--red);color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:8px">중요</span>{% endif %}
+        {% if not n.read %}<span style="width:8px;height:8px;background:var(--accent);border-radius:50%;display:inline-block"></span>{% endif %}
+        <span style="font-size:15px;font-weight:700;color:var(--text)">{{ n.title }}</span>
+      </div>
+      {% if n.body %}<div class="t2 fs13" style="margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ n.body }}</div>{% endif %}
+      <div style="margin-top:6px;font-size:11px;color:var(--text3)">{{ n.created_by or '' }} · {{ n.created_at.strftime('%m-%d') if n.created_at else '' }}{% if n.ncmt %} · 💬 {{ n.ncmt }}{% endif %}{% if n.read %} · ✓ 읽음{% endif %}</div>
+    </a>
+    {% endfor %}
+  {% else %}
+  <div class="c-card mb-3" style="padding:20px;text-align:center;color:var(--text3)">공지가 없습니다</div>
+  {% endif %}
+  <div style="height:20px"></div>
+</div>
+{% endblock %}

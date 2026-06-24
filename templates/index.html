@@ -24,6 +24,18 @@
     </div>
   </a>
 
+  <!-- 공지·게시판 (상시) -->
+  <a href="/notices" class="c-card mb-3" style="display:block;text-decoration:none;padding:14px 16px;border-left:3px solid {% if n_notice %}var(--red){% else %}var(--accent){% endif %}">
+    <div style="display:flex;align-items:center;gap:11px">
+      <div style="font-size:28px;line-height:1">📢</div>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--text)">공지 · 게시판</div>
+        <div class="t2 fs13" style="margin-top:2px">{% if n_notice %}안 읽은 공지 {{ n_notice }}건{% else %}회사 소식 · 공지{% endif %}</div>
+      </div>
+      {% if n_notice %}<span style="margin-left:auto;background:var(--red);color:#fff;font-size:12px;font-weight:800;padding:3px 9px;border-radius:12px">{{ n_notice }}</span>{% else %}<div style="margin-left:auto;font-size:18px;color:var(--accent)">›</div>{% endif %}
+    </div>
+  </a>
+
   <!-- 설문·경조사 (있을 때만) -->
   {% if n_survey or n_cond %}
   <a href="/surveys" class="c-card mb-3" style="display:block;text-decoration:none;padding:14px 16px;border-left:3px solid var(--accent)">

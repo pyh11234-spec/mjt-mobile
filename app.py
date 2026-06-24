@@ -878,11 +878,12 @@ def index():
         try:
             n_survey = sum(1 for s in (db_pg.surveys_for(_eid) if db_pg.is_available() else []) if not s.get('responded'))
             n_cond = len(db_pg.condolences_for(_eid)) if db_pg.is_available() else 0
+            n_notice = db_pg.unread_notice_count(_eid) if db_pg.is_available() else 0
         except Exception:
-            n_survey, n_cond = 0, 0
+            n_survey, n_cond, n_notice = 0, 0, 0
 
         return render_template('index.html',
-            n_survey=n_survey, n_cond=n_cond,
+            n_survey=n_survey, n_cond=n_cond, n_notice=n_notice,
             today   = today.strftime('%Y년 %m월 %d일'),
             weekday = '월화수목금토일'[today.weekday()],
             year=year, month=month,
@@ -1033,6 +1034,36 @@ def m_condolence_join(eid):
         return jsonify({'ok': False, 'msg': 'DB 미연결'})
     ok, msg = db_pg.join_condolence(emp_id, eid, amt)
     return jsonify({'ok': ok, 'msg': msg})
+
+
+# ── 공지·게시판 (직원 모바일 열람·댓글) ──
+@app.route('/notices')
+def m_notices():
+    emp_id = session.get('emp_id')
+    try:
+        items = db_pg.notices_for(emp_id) if db_pg.is_available() else []
+        return render_template('m_notices.html', items=items)
+    except Exception as e:
+        return render_template('error.html', error=str(e))
+
+
+@app.route('/notice/<int:nid>', methods=['GET', 'POST'])
+def m_notice(nid):
+    emp_id = session.get('emp_id')
+    try:
+        if not db_pg.is_available():
+            return redirect('/notices')
+        n = db_pg.notice_one(emp_id, nid)
+        if not n:
+            return redirect('/notices')
+        if request.method == 'POST':
+            db_pg.add_notice_comment(emp_id, nid, request.form.get('body'))
+            return redirect('/notice/%d' % nid)
+        db_pg.mark_notice_read(emp_id, nid)      # 열면 자동 읽음 기록
+        comments = db_pg.notice_comments(nid)
+        return render_template('m_notice.html', n=n, comments=comments, me=emp_id)
+    except Exception as e:
+        return render_template('error.html', error=str(e))
 
 
 @app.route('/menu', methods=['GET', 'POST'])

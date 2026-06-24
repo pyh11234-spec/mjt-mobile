@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% set page = 'notices' %}
+{% block content %}
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">{% if n.importance=='중요' %}🔴 {% endif %}{{ n.title }}</div>
+    <div class="pg-sub">{{ n.created_by or '' }} · {{ n.created_at.strftime('%Y-%m-%d') if n.created_at else '' }}</div>
+  </div>
+  <a href="/notices" class="btn-ref">← 목록</a>
+</div>
+<div class="px-3 pt-3">
+  <div class="c-card mb-3" style="padding:16px;white-space:pre-wrap;line-height:1.6;color:var(--text);font-size:14.5px">{{ n.body or '' }}</div>
+
+  <div class="sec-lbl">댓글 {{ comments|length }}</div>
+  <div class="c-card mb-3" style="padding:6px 16px 12px">
+    {% if comments %}
+      {% for c in comments %}
+      <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <b style="font-size:13px;color:var(--text)">{{ c.name or c.emp_id }}</b>
+        <span style="margin-left:6px;font-size:11px;color:var(--text3)">{{ c.created_at.strftime('%m-%d %H:%M') if c.created_at else '' }}</span>
+        <div style="font-size:14px;margin-top:3px;white-space:pre-wrap;color:var(--text)">{{ c.body }}</div>
+      </div>
+      {% endfor %}
+    {% else %}<div class="t2 fs13" style="padding:12px 0">아직 댓글이 없습니다. 의견을 남겨주세요.</div>{% endif %}
+    <form method="post" style="display:flex;gap:8px;padding-top:12px">
+      <input name="body" placeholder="의견을 남겨주세요" required maxlength="500"
+             style="flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--card2);font-size:14px;box-sizing:border-box">
+      <button type="submit" style="padding:11px 18px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-weight:700;white-space:nowrap">등록</button>
+    </form>
+  </div>
+  <div style="height:20px"></div>
+</div>
+{% endblock %}
