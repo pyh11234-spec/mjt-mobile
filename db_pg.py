@@ -519,3 +519,34 @@ def add_notice_comment(emp_id: str, nid: int, body: str):
 
 def unread_notice_count(emp_id: str):
     return sum(1 for n in notices_for(emp_id) if not n.get('read'))
+
+
+# ── 회사일정(company_events) — 데스크탑 att_repo와 같은 Supabase 표(Sheets→Supabase 통일) ──
+def company_events(year: int, month: int):
+    rows = query("SELECT event_date, ev_type, content, admin FROM company_events "
+                 "WHERE EXTRACT(YEAR FROM event_date)=%s AND EXTRACT(MONTH FROM event_date)=%s "
+                 "ORDER BY event_date", (int(year), int(month)))
+    return [{'ds': (r['event_date'].isoformat() if r['event_date'] else ''),
+             'type': r.get('ev_type') or '', 'content': r.get('content') or '',
+             'note': r.get('admin') or ''} for r in rows]
+
+
+def add_company_event(ds, ev_type, content, note=''):
+    with cursor() as cur:
+        cur.execute("INSERT INTO company_events (event_date, ev_type, content, admin, created_at) "
+                    "VALUES (%s,%s,%s,%s, now())", (ds, ev_type, content, note))
+    return True
+
+
+def delete_company_event(ds, content):
+    with cursor() as cur:
+        cur.execute("DELETE FROM company_events WHERE event_date=%s AND content=%s", (ds, content))
+    return True
+
+
+def samgyup_dates(today_iso):
+    """다가오는 삼겹살데이(회사일정 유형='삼겹살데이', 오늘 이후) — Supabase."""
+    rows = query("SELECT event_date, content, admin FROM company_events "
+                 "WHERE ev_type='삼겹살데이' AND event_date >= %s ORDER BY event_date", (today_iso,))
+    return [{'date': r['event_date'].isoformat() if r['event_date'] else '',
+             'content': r.get('content') or '삼겹살데이', 'note': r.get('admin') or ''} for r in rows]

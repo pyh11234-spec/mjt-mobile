@@ -1678,6 +1678,11 @@ def ot_revert():
 
 def get_company_events(year, month):
     def _f():
+        if db_pg.is_available():          # 데스크탑과 동일 Supabase(단일 원본)
+            try:
+                return db_pg.company_events(year, month)
+            except Exception:
+                pass
         try:
             sh   = _open_sh()
             rows = sh.worksheet('회사일정').get_all_values()[1:]
@@ -1698,22 +1703,35 @@ def get_company_events(year, month):
     return _cached(f'events_{year}_{month}', _f, ttl=300)
 
 def save_company_event(ds, ev_type, content, note=''):
+    def _bust():
+        with _lock:
+            try:
+                yr, mo = int(ds[:4]), int(ds[5:7])
+                _cache.pop(f'events_{yr}_{mo}', None)
+            except Exception:
+                pass
+    if db_pg.is_available():          # 데스크탑과 동일 Supabase(단일 원본)
+        try:
+            db_pg.add_company_event(ds, ev_type, content, note)
+            _bust(); return
+        except Exception:
+            pass
     sh = _open_sh()
     ws = sh.worksheet('회사일정')
     now_s = datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')
     ws.append_row([ds, ev_type, content, note, now_s, '웹'], value_input_option='USER_ENTERED')
-    with _lock:
-        try:
-            yr, mo = int(ds[:4]), int(ds[5:7])
-            _cache.pop(f'events_{yr}_{mo}', None)
-        except Exception:
-            pass
+    _bust()
 
 # ── 삼겹살데이 (월 2회 외부 부페) ──────────────────────────────
 def get_samgyup_dates():
     """다가오는 삼겹살데이 날짜 (회사일정 유형='삼겹살데이', 오늘 이후)."""
     today = _today_kst().strftime('%Y-%m-%d')
     def _f():
+        if db_pg.is_available():          # 데스크탑과 동일 Supabase(단일 원본)
+            try:
+                return db_pg.samgyup_dates(today)
+            except Exception:
+                pass
         try:
             sh   = _open_sh()
             rows = sh.worksheet('회사일정').get_all_values()[1:]
@@ -1804,6 +1822,18 @@ def api_samgyup_attend():
 
 
 def delete_company_event(ds, content):
+    if db_pg.is_available():          # 데스크탑과 동일 Supabase(단일 원본)
+        try:
+            db_pg.delete_company_event(ds, content)
+            with _lock:
+                try:
+                    yr, mo = int(ds[:4]), int(ds[5:7])
+                    _cache.pop(f'events_{yr}_{mo}', None)
+                except Exception:
+                    pass
+            return True
+        except Exception:
+            pass
     sh  = _open_sh()
     ws  = sh.worksheet('회사일정')
     all = ws.get_all_values()
