@@ -112,20 +112,22 @@
   {% endif %}
 
   <!-- 오늘 점심 메뉴 -->
-  <div class="sec-lbl">오늘 점심 메뉴</div>
-  <div class="c-card mb-3" style="padding: 14px 16px">
+  <div class="sec-lbl">🍱 오늘 점심 메뉴</div>
+  <div class="c-card mb-3" style="padding: 16px 18px; border-left: 5px solid var(--gold);
+       background: linear-gradient(180deg, var(--gold-l) 0%, var(--card) 60%)">
     {% if today_menu %}
-    <div style="font-size: 15px; font-weight: 600; line-height: 1.6; white-space: pre-wrap">{{ today_menu }}</div>
+    <div style="font-size: 18px; font-weight: 800; line-height: 1.55; color: var(--ink);
+         white-space: pre-wrap; letter-spacing:-0.01em">{{ today_menu }}</div>
     {% else %}
-    <div class="t2 fs13">아직 등록된 메뉴가 없습니다.
-      <a href="/menu" style="color:var(--accent)">등록하기 →</a>
+    <div style="font-size: 14px; color: var(--text2)">아직 등록된 메뉴가 없습니다.
+      <a href="/menu" style="color:var(--accent); font-weight:700">등록하기 →</a>
     </div>
     {% endif %}
   </div>
 
   <!-- 이번 달 행사 -->
   {% if month_events %}
-  <div class="sec-lbl">이번 달 행사</div>
+  <div class="sec-lbl">📅 이번 달 행사</div>
   <div class="c-card mb-3" style="padding:4px 16px 8px">
     {% for e in month_events %}
     <div style="display:flex;align-items:center;gap:11px;padding:9px 0;{% if not loop.last %}border-bottom:1px solid var(--border);{% endif %}{% if e.ds < today_iso %}opacity:.45;{% endif %}">
@@ -144,7 +146,7 @@
   {% endif %}
 
   <!-- 근태 KPI -->
-  <div class="sec-lbl">{{ year }}년 {{ '%02d'|format(month) }}월 근태</div>
+  <div class="sec-lbl">🕒 {{ year }}년 {{ '%02d'|format(month) }}월 근태</div>
   <div class="c-card mb-3">
     <div class="row g-0 text-center">
       <div class="col-4" style="padding: 16px 0; border-right: 1px solid var(--border)">
@@ -177,7 +179,7 @@
   </div>
 
   <!-- 오늘 식수 요약 -->
-  <div class="sec-lbl">오늘 식수 현황</div>
+  <div class="sec-lbl">🍽 오늘 식수 현황</div>
   <div class="c-card mb-3">
     <div class="row g-0">
 

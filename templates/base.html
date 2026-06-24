@@ -253,11 +253,17 @@
 
     /* 섹션 레이블 */
     .sec-lbl {
-      font-size: 10px; font-weight: 700;
-      color: var(--text3);
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      margin-bottom: 8px;
+      font-size: 15px; font-weight: 800;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+      margin: 4px 0 9px;
+      display: flex; align-items: center; gap: 7px;
+    }
+    /* 좌측 골드 강조 바 */
+    .sec-lbl::before {
+      content: ''; width: 4px; height: 16px;
+      background: linear-gradient(180deg, var(--gold) 0%, var(--gold2) 100%);
+      border-radius: 3px; flex-shrink: 0;
     }
 
     /* 필터 탭 */
