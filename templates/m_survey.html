@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% set page = 'surveys' %}
+{% block content %}
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">{{ s.title }}</div>
+    <div class="pg-sub">{{ '🔒 익명 응답' if s.anonymous else '응답' }}</div>
+  </div>
+  <a href="/surveys" class="btn-ref">← 목록</a>
+</div>
+
+<div class="px-3 pt-3">
+  {% if s.description %}
+  <div class="c-card mb-3" style="padding:12px 16px;color:var(--text2);font-size:13px;white-space:pre-wrap;line-height:1.5">{{ s.description }}</div>
+  {% endif %}
+
+  <form method="post" id="svForm">
+    {% for q in s.questions %}
+    <div class="c-card mb-3" style="padding:14px 16px">
+      <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:11px;line-height:1.4">
+        {{ loop.index }}. {{ q.text }}{% if q.required %} <span style="color:var(--red)">*</span>{% endif %}</div>
+
+      {% if q.qtype in ('single','multi') %}
+        {% for o in q.opts %}
+        <label style="display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--border)">
+          <input type="{{ 'radio' if q.qtype=='single' else 'checkbox' }}" name="q_{{ q.id }}" value="{{ o }}"
+                 {{ 'required' if (q.required and q.qtype=='single') else '' }}
+                 style="width:20px;height:20px;accent-color:var(--accent);flex:0 0 auto">
+          <span style="font-size:14.5px;color:var(--text)">{{ o }}</span>
+        </label>
+        {% endfor %}
+        {% if q.qtype=='multi' %}<div class="t3 fs11" style="margin-top:6px;color:var(--text3)">여러 개 선택 가능</div>{% endif %}
+
+      {% elif q.qtype=='scale' %}
+        <div style="display:flex;gap:6px">
+          {% for n in range(1,6) %}
+          <label style="flex:1;text-align:center;cursor:pointer">
+            <input type="radio" name="q_{{ q.id }}" value="{{ n }}" {{ 'required' if q.required else '' }} class="scin" style="display:none">
+            <span class="sdot" style="display:block;padding:13px 0;border:1px solid var(--border);border-radius:10px;font-weight:800;font-size:16px;color:var(--text2);background:var(--card)">{{ n }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:11px;color:var(--text3)"><span>전혀 아니다</span><span>매우 그렇다</span></div>
+
+      {% else %}
+        <textarea name="q_{{ q.id }}" rows="3" {{ 'required' if q.required else '' }} placeholder="자유롭게 입력해 주세요"
+          style="width:100%;padding:11px;border-radius:10px;border:1px solid var(--border);background:var(--card2);color:var(--text);box-sizing:border-box;font-size:14px;font-family:inherit"></textarea>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <button type="submit" style="width:100%;padding:15px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:800;font-size:15px;margin-bottom:24px;cursor:pointer;box-shadow:var(--shadow)">제출하기</button>
+  </form>
+</div>
+
+<script>
+document.querySelectorAll('.scin').forEach(function(i){
+  i.addEventListener('change',function(){
+    document.querySelectorAll('input[name="'+i.name+'"]').forEach(function(x){
+      var d=x.nextElementSibling;
+      if(x.checked){d.style.background='var(--accent)';d.style.color='#fff';d.style.borderColor='var(--accent)';}
+      else{d.style.background='var(--card)';d.style.color='var(--text2)';d.style.borderColor='var(--border)';}
+    });
+  });
+});
+</script>
+{% endblock %}

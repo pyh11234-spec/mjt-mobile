@@ -367,3 +367,92 @@ def has_approver_pw(factory: str, level: str) -> bool:
     r = query_one("SELECT pw_hash FROM approval_lines WHERE factory=%s AND level=%s",
                   (factory, level))
     return bool(r and r['pw_hash'])
+
+
+# ── 사내 설문·경조사 (허브가 생성, 직원이 모바일로 응답·참여 — 같은 Supabase 공유) ──
+def surveys_for(emp_id: str):
+    """이 직원 대상 진행중 설문(대상 매칭) + 응답여부 + 문항(보기 리스트)."""
+    if not emp_id:
+        return []
+    emp = query_one("SELECT dept, factory, biz_entity FROM employees WHERE UPPER(emp_id)=%s",
+                    (emp_id.strip().upper(),))
+    if not emp:
+        return []
+    rows = query("SELECT id, title, description, anonymous, target_type, target_value "
+                 "FROM surveys WHERE status='진행중' ORDER BY created_at DESC")
+    out = []
+    for s in rows:
+        tt, tv = (s.get('target_type') or 'all'), (s.get('target_value') or '')
+        if tt == 'dept' and (emp.get('dept') or '') != tv:
+            continue
+        if tt == 'factory' and (emp.get('factory') or '') != tv:
+            continue
+        if tt == 'biz' and (emp.get('biz_entity') or '') != tv:
+            continue
+        s['responded'] = query_one(
+            "SELECT 1 FROM survey_responses WHERE survey_id=%s AND emp_id=%s LIMIT 1",
+            (s['id'], emp_id)) is not None
+        qs = query('SELECT id, qtype, text, options, required FROM survey_questions '
+                   'WHERE survey_id=%s ORDER BY "order", id', (s['id'],))
+        for q in qs:
+            q['opts'] = [o.strip() for o in (q.get('options') or '').split('\n') if o.strip()]
+        s['questions'] = qs
+        out.append(s)
+    return out
+
+
+def survey_one(emp_id: str, sid: int):
+    """응답 폼용 — 한 설문(대상·진행중·미응답 검증 포함)."""
+    for s in surveys_for(emp_id):
+        if s['id'] == sid:
+            return s
+    return None
+
+
+def submit_survey(emp_id: str, sid: int, answers: dict):
+    """answers={문항id: 값 또는 [값들]}. 검증+삽입. 반환 (ok, msg)."""
+    s = query_one("SELECT status FROM surveys WHERE id=%s", (sid,))
+    if not s or s.get('status') != '진행중':
+        return False, '진행중 설문이 아닙니다'
+    if query_one("SELECT 1 FROM survey_responses WHERE survey_id=%s AND emp_id=%s", (sid, emp_id)):
+        return False, '이미 응답했습니다'
+    qids = {r['id'] for r in query("SELECT id FROM survey_questions WHERE survey_id=%s", (sid,))}
+    with cursor() as cur:
+        cur.execute("INSERT INTO survey_responses (survey_id, emp_id, submitted_at) "
+                    "VALUES (%s,%s, now()) RETURNING id", (sid, emp_id))
+        rid = cur.fetchone()['id']
+        for k, v in (answers or {}).items():
+            try:
+                qid = int(k)
+            except Exception:
+                continue
+            if qid not in qids:
+                continue
+            if isinstance(v, list):
+                v = '|'.join(str(x) for x in v)
+            cur.execute("INSERT INTO survey_answers (response_id, question_id, value) "
+                        "VALUES (%s,%s,%s)", (rid, qid, str(v)))
+    return True, '응답이 제출되었습니다'
+
+
+def condolences_for(emp_id: str):
+    """진행중 경조사 공지 + 자율참여 여부."""
+    rows = query("SELECT id, title, kind, event_date, detail, peer_enabled, suggested_amount "
+                 "FROM condolence_events WHERE status='진행중' ORDER BY created_at DESC")
+    for ev in rows:
+        ev['joined'] = bool(emp_id) and query_one(
+            "SELECT 1 FROM condolence_contributions WHERE event_id=%s AND emp_id=%s",
+            (ev['id'], emp_id)) is not None
+    return rows
+
+
+def join_condolence(emp_id: str, eid: int, amount: int = 10000):
+    ev = query_one("SELECT status, peer_enabled FROM condolence_events WHERE id=%s", (eid,))
+    if not ev or ev.get('status') != '진행중' or not ev.get('peer_enabled'):
+        return False, '참여할 수 없는 경조사입니다'
+    if query_one("SELECT 1 FROM condolence_contributions WHERE event_id=%s AND emp_id=%s", (eid, emp_id)):
+        return False, '이미 참여했습니다'
+    with cursor() as cur:
+        cur.execute("INSERT INTO condolence_contributions (event_id, emp_id, amount, paid, created_at) "
+                    "VALUES (%s,%s,%s, FALSE, now())", (eid, emp_id, amount))
+    return True, '참여 완료'

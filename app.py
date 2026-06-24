@@ -873,7 +873,16 @@ def index():
         samgyup_next  = samgyup_dates[0] if samgyup_dates else None
         samgyup_sum   = get_samgyup_summary(samgyup_next['date']) if samgyup_next else None
 
+        # 응답할 설문 / 진행중 경조사 (홈 진입 배지)
+        _eid = session.get('emp_id', '')
+        try:
+            n_survey = sum(1 for s in (db_pg.surveys_for(_eid) if db_pg.is_available() else []) if not s.get('responded'))
+            n_cond = len(db_pg.condolences_for(_eid)) if db_pg.is_available() else 0
+        except Exception:
+            n_survey, n_cond = 0, 0
+
         return render_template('index.html',
+            n_survey=n_survey, n_cond=n_cond,
             today   = today.strftime('%Y년 %m월 %d일'),
             weekday = '월화수목금토일'[today.weekday()],
             year=year, month=month,
@@ -969,6 +978,61 @@ def meal():
         )
     except Exception as e:
         return render_template('error.html', error=str(e))
+
+
+# ── 사내 설문·경조사 (직원 모바일 응답·참여 — 허브가 생성, 같은 Supabase) ──
+@app.route('/surveys')
+def m_surveys():
+    emp_id = session.get('emp_id')
+    try:
+        surveys = db_pg.surveys_for(emp_id) if db_pg.is_available() else []
+        conds = db_pg.condolences_for(emp_id) if db_pg.is_available() else []
+        return render_template('m_surveys.html', surveys=surveys, conds=conds,
+                               done=request.args.get('done'))
+    except Exception as e:
+        return render_template('error.html', error=str(e))
+
+
+@app.route('/survey/<int:sid>', methods=['GET', 'POST'])
+def m_survey(sid):
+    emp_id = session.get('emp_id')
+    try:
+        if not db_pg.is_available():
+            return redirect('/surveys')
+        s = db_pg.survey_one(emp_id, sid)
+        if not s or s.get('responded'):
+            return redirect('/surveys')
+        if request.method == 'POST':
+            answers = {}
+            for q in s['questions']:
+                key = 'q_%d' % q['id']
+                if q['qtype'] == 'multi':
+                    vals = request.form.getlist(key)
+                    if vals:
+                        answers[q['id']] = vals
+                else:
+                    v = (request.form.get(key) or '').strip()
+                    if v:
+                        answers[q['id']] = v
+            ok, _msg = db_pg.submit_survey(emp_id, sid, answers)
+            return redirect('/surveys?done=' + ('1' if ok else '0'))
+        return render_template('m_survey.html', s=s)
+    except Exception as e:
+        return render_template('error.html', error=str(e))
+
+
+@app.route('/condolence/<int:eid>/join', methods=['POST'])
+def m_condolence_join(eid):
+    emp_id = session.get('emp_id')
+    try:
+        body = request.get_json(silent=True) or {}
+        amt = int(body.get('amount') or request.form.get('amount') or 10000)
+    except Exception:
+        amt = 10000
+    if not db_pg.is_available():
+        return jsonify({'ok': False, 'msg': 'DB 미연결'})
+    ok, msg = db_pg.join_condolence(emp_id, eid, amt)
+    return jsonify({'ok': ok, 'msg': msg})
 
 
 @app.route('/menu', methods=['GET', 'POST'])

@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% set page = 'surveys' %}
+{% block content %}
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">설문·경조사</div>
+    <div class="pg-sub">참여해 주세요</div>
+  </div>
+  <a href="/" class="btn-ref">← 홈</a>
+</div>
+
+<div class="px-3 pt-3">
+  {% if done=='1' %}
+  <div class="c-card mb-3" style="padding:12px 16px;border-left:3px solid var(--green);color:var(--green);font-weight:700">✅ 응답이 제출되었습니다. 감사합니다!</div>
+  {% elif done=='0' %}
+  <div class="c-card mb-3" style="padding:12px 16px;border-left:3px solid var(--red);color:var(--red)">⚠️ 제출하지 못했습니다(이미 응답했거나 마감).</div>
+  {% endif %}
+
+  <div class="sec-lbl">설문</div>
+  {% set pending = surveys|rejectattr('responded')|list %}
+  {% if pending %}
+    {% for s in pending %}
+    <a href="/survey/{{ s.id }}" class="c-card mb-2" style="display:block;text-decoration:none;padding:14px 16px;border-left:3px solid var(--accent)">
+      <div style="font-size:15px;font-weight:700;color:var(--text)">{{ s.title }}</div>
+      {% if s.description %}<div class="t2 fs13" style="margin-top:3px">{{ s.description }}</div>{% endif %}
+      <div style="margin-top:7px;font-size:12px;color:var(--accent2);font-weight:600">{{ s.questions|length }}문항 · {{ '🔒 익명' if s.anonymous else '실명' }} · 응답하기 ›</div>
+    </a>
+    {% endfor %}
+  {% else %}
+  <div class="c-card mb-3" style="padding:20px;text-align:center;color:var(--text3)">참여할 설문이 없습니다 🙂</div>
+  {% endif %}
+  {% set answered = surveys|selectattr('responded')|list %}
+  {% if answered %}<div class="t2 fs11" style="margin:4px 2px 16px">✓ 응답완료: {% for s in answered %}{{ s.title }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+
+  <div class="sec-lbl">경조사</div>
+  {% if conds %}
+    {% for ev in conds %}
+    <div class="c-card mb-2" style="padding:14px 16px">
+      <div style="display:flex;align-items:center;gap:9px">
+        <span style="font-size:22px">🎀</span>
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--text)">{{ ev.title }}</div>
+          <div class="t2 fs13">{{ ev.kind }}{% if ev.event_date %} · {{ ev.event_date }}{% endif %}</div>
+        </div>
+      </div>
+      {% if ev.detail %}<div class="t2 fs13" style="margin-top:8px;white-space:pre-wrap;line-height:1.5">{{ ev.detail }}</div>{% endif %}
+      {% if ev.peer_enabled %}
+        {% if ev.joined %}
+        <div style="margin-top:10px;color:var(--green);font-size:13px;font-weight:700">✓ 자율 참여 완료</div>
+        {% else %}
+        <button class="cj-btn" data-eid="{{ ev.id }}" data-amt="{{ ev.suggested_amount }}"
+          style="margin-top:10px;width:100%;padding:12px;border:none;border-radius:10px;background:var(--orange);color:#fff;font-weight:700;font-size:14px;cursor:pointer">
+          자율 참여하기 ({{ '{:,}'.format(ev.suggested_amount) }}원)</button>
+        <div class="t3 fs11" style="text-align:center;margin-top:5px;color:var(--text3)">※ 자율입니다. 부담 갖지 마세요.</div>
+        {% endif %}
+      {% else %}
+        <div class="t3 fs11" style="margin-top:8px;color:var(--text3)">공지용 — 자율 참여는 받지 않습니다.</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="c-card mb-3" style="padding:20px;text-align:center;color:var(--text3)">진행중 경조사가 없습니다</div>
+  {% endif %}
+  <div style="height:20px"></div>
+</div>
+
+<script>
+document.querySelectorAll('.cj-btn').forEach(function(b){
+  b.addEventListener('click', async function(){
+    if(!confirm('자율 참여하시겠습니까? (강제 아닙니다)')) return;
+    b.disabled=true; b.textContent='처리 중...';
+    try{
+      var r=await fetch('/condolence/'+b.dataset.eid+'/join',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({amount:parseInt(b.dataset.amt)||10000})}).then(x=>x.json());
+      if(r.ok){ b.outerHTML='<div style="margin-top:10px;color:var(--green);font-size:13px;font-weight:700">✓ 자율 참여 완료</div>'; }
+      else{ alert(r.msg||'실패'); b.disabled=false; b.textContent='자율 참여하기'; }
+    }catch(e){ alert('네트워크 오류'); b.disabled=false; b.textContent='자율 참여하기'; }
+  });
+});
+</script>
+{% endblock %}
