@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% set page = 'duty' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">당직자 보기</div>
+    <div class="pg-sub">{{ year }}년 {{ '%02d'|format(month) }}월</div>
+  </div>
+  <a href="/all" class="btn-ref">← 전체메뉴</a>
+</div>
+
+<div class="px-3 pt-3">
+
+  <!-- 월 이동 -->
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
+    <a href="/duty?year={{ prev_y }}&month={{ prev_m }}"
+       style="padding:6px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; color:var(--text2)">
+      ◀ {{ prev_m }}월
+    </a>
+    <span style="font-weight:700; font-size:15px">{{ year }}.{{ '%02d'|format(month) }}</span>
+    <a href="/duty?year={{ next_y }}&month={{ next_m }}"
+       style="padding:6px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; color:var(--text2)">
+      {{ next_m }}월 ▶
+    </a>
+  </div>
+
+  {% if not db_ok %}
+  <div style="background:#450A0A; border:1px solid var(--red); border-radius:10px;
+              padding:10px 14px; margin-bottom:10px; text-align:center; color:#FCA5A5; font-size:13px">
+    ⚠️ 서버 연결 불가 — 잠시 후 다시 시도해주세요.
+  </div>
+  {% endif %}
+
+  <!-- 근접 주(이번주~다음주) 강조 -->
+  {% set near = duties | selectattr('is_near') | list %}
+  {% if near %}
+  <div class="sec-lbl">📌 이번 주 · 다음 주 당직</div>
+  <div class="c-card mb-3" style="padding:6px 0">
+    {% for d in near %}
+    <div class="c-row" style="padding:10px 14px">
+      <span style="font-size:13px; font-weight:800; color:{% if d.is_today %}#4ADE80{% else %}var(--accent){% endif %}; min-width:88px">
+        {{ d.date[5:] }} ({{ d.weekday }}){% if d.is_today %} ・오늘{% endif %}
+      </span>
+      <span style="flex:1; font-size:15px; font-weight:800">{{ d.name or '미배정' }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- 이 달 전체 배정 -->
+  <div class="sec-lbl">{{ month }}월 당직 배정</div>
+  <div class="c-card mb-3">
+    {% if duties %}
+      {% for d in duties %}
+      <div class="c-row" style="{% if d.is_near %}background:#1E3A5F{% endif %}">
+        <span style="font-size:13px; font-weight:700; color:var(--text2); min-width:80px">
+          {{ d.date[5:] }} ({{ d.weekday }})
+        </span>
+        <span style="flex:1; font-size:14px; font-weight:{% if d.is_near %}800{% else %}600{% endif %}">
+          {{ d.name or '미배정' }}
+        </span>
+        {% if d.is_today %}<span style="font-size:10px; color:#4ADE80; font-weight:800">오늘</span>{% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+    <div class="empty">이 달 등록된 당직 배정이 없습니다</div>
+    {% endif %}
+  </div>
+
+  <!-- 변경 이력 -->
+  <div class="sec-lbl">🔄 {{ month }}월 변경 이력</div>
+  <div class="c-card mb-3">
+    {% if history %}
+      {% for h in history %}
+      <div class="c-row" style="flex-wrap:wrap; gap:4px">
+        <span style="font-size:12px; font-weight:700; color:var(--accent); min-width:44px">{{ h.date[5:] }}</span>
+        <span style="flex:1; font-size:13px">
+          <span style="color:var(--text2); text-decoration:line-through">{{ h.old_name }}</span>
+          →
+          <span style="font-weight:700">{{ h.new_name }}</span>
+        </span>
+        <span class="t2 fs11" style="width:100%; padding-left:48px">{{ h.changed_at }} 변경{% if h.note %} · {{ h.note }}{% endif %}</span>
+      </div>
+      {% endfor %}
+    {% else %}
+    <div class="empty">이 달 변경 이력 없음</div>
+    {% endif %}
+  </div>
+
+  <div class="t2 fs11 mb-3" style="color:var(--text3); text-align:center">
+    배정 변경은 데스크탑 근태관리 프로그램에서만 가능합니다.
+  </div>
+
+</div>
+{% endblock %}

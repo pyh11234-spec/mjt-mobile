@@ -3096,24 +3096,22 @@ def api_wkend_request():
 
 # ── 당직자 ────────────────────────────────────────────────────────
 def get_duty_officers(year: int = None, month: int = None) -> list:
-    """당직자 시트에서 해당 연월의 배정 목록 반환. year/month 없으면 전체."""
-    def _f():
-        try:
-            sh = _open_sh()
-            ws = sh.worksheet(DUTY_SHEET)
-            rows = ws.get_all_records()
-            return [{'date': str(r.get('날짜', '')).strip(),
-                     'weekday': str(r.get('요일', '')).strip(),
-                     'name': str(r.get('당직자', '')).strip()}
-                    for r in rows if str(r.get('날짜', '')).strip()]
-        except Exception:
-            return []
-    key = 'duty_all'
-    data = _cached(key, _f, ttl=300)
+    """당직 배정 목록 반환(Postgres duty_assignments 기준, 2026-07-13부터 —
+    데스크탑 DutyCalendarDialog가 실제로 쓰는 소스와 동일하게 통일함. 기존엔 이 함수만
+    옛 Google Sheets를 봐서 데스크탑에서 바꿔도 모바일엔 반영 안 되는 split-brain이었음).
+    year/month 없으면 앞뒤 1년 범위."""
+    import datetime as _dt
     if year and month:
-        prefix = f'{year}-{month:02d}-'
-        return [r for r in data if r['date'].startswith(prefix)]
-    return data
+        import calendar as _cal
+        _, last_day = _cal.monthrange(year, month)
+        d_from, d_to = f'{year}-{month:02d}-01', f'{year}-{month:02d}-{last_day:02d}'
+    else:
+        today = _today_kst()
+        d_from = (today - _dt.timedelta(days=365)).strftime('%Y-%m-%d')
+        d_to   = (today + _dt.timedelta(days=365)).strftime('%Y-%m-%d')
+    if not db_pg.is_available():
+        return []
+    return db_pg.duties_between(d_from, d_to)
 
 
 def get_duty_for_date(ds: str) -> str:
@@ -3208,6 +3206,44 @@ def api_duty():
     year  = request.args.get('year',  type=int, default=_today_kst().year)
     month = request.args.get('month', type=int, default=_today_kst().month)
     return jsonify(get_duty_officers(year, month))
+
+
+@app.route('/duty')
+def duty_view():
+    """당직자 보기 — 월별 조회 + 근접 주 강조 + 변경이력(2026-07-13 신규).
+    데스크탑 DutyCalendarDialog가 쓰는 Postgres duty_assignments/duty_change_history를
+    그대로 읽는 읽기전용 화면(모바일에서 편집 없음, 배정 변경은 데스크탑에서만)."""
+    today = _today_kst()
+    year  = request.args.get('year',  type=int, default=today.year)
+    month = request.args.get('month', type=int, default=today.month)
+
+    import calendar as _cal
+    _, last_day = _cal.monthrange(year, month)
+    d_from = f'{year}-{month:02d}-01'
+    d_to   = f'{year}-{month:02d}-{last_day:02d}'
+
+    duties, history = [], []
+    if db_pg.is_available():
+        duties  = db_pg.duties_between(d_from, d_to)
+        history = db_pg.duty_history_between(d_from, d_to)
+
+    near_start = today - timedelta(days=today.weekday())   # 이번 주 월요일
+    near_end   = near_start + timedelta(days=13)            # 다음 주 일요일까지
+    for d in duties:
+        try:
+            dd = datetime.strptime(d['date'], '%Y-%m-%d').date()
+        except Exception:
+            dd = None
+        d['is_today'] = (dd == today)
+        d['is_near']  = bool(dd and near_start <= dd <= near_end)
+
+    prev_m, prev_y = (month - 1, year) if month > 1 else (12, year - 1)
+    next_m, next_y = (month + 1, year) if month < 12 else (1, year + 1)
+
+    return render_template('m_duty.html', duties=duties, history=history,
+                            year=year, month=month, today=today,
+                            prev_y=prev_y, prev_m=prev_m, next_y=next_y, next_m=next_m,
+                            db_ok=db_pg.is_available())
 
 
 # ═══════════════════════════════════════════════════════════════

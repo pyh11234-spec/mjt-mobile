@@ -228,6 +228,18 @@ def duty_roster_names() -> list:
     return [r['emp_name'] for r in rows if r.get('emp_name')]
 
 
+def duty_history_between(d_from: str, d_to: str) -> list:
+    """기간 내 당직자 변경 이력(최신순) — 모바일 '당직자 보기' 월별 화면용."""
+    rows = query(
+        "SELECT duty_date, old_emp_name, new_emp_name, changed_at, note "
+        "FROM duty_change_history WHERE duty_date BETWEEN %s AND %s "
+        "ORDER BY changed_at DESC", (d_from, d_to))
+    return [{'date': _ymd(r['duty_date']), 'old_name': r['old_emp_name'] or '',
+             'new_name': r['new_emp_name'] or '',
+             'changed_at': r['changed_at'].strftime('%m-%d %H:%M') if r.get('changed_at') else '',
+             'note': r['note'] or ''} for r in rows]
+
+
 def emails_by_name() -> dict:
     """재직자 성명→이메일(이메일 있는 사람만)."""
     rows = query("SELECT name, email FROM employees "
