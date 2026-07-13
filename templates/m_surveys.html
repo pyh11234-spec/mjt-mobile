@@ -17,20 +17,38 @@
   {% endif %}
 
   <div class="sec-lbl">설문</div>
-  {% set pending = surveys|rejectattr('responded')|list %}
-  {% if pending %}
-    {% for s in pending %}
+  {% if surveys %}
+    {% for s in surveys %}
+    {% set closed = (s.status != '진행중') %}
+    {% if s.responded or closed %}
+    <div class="c-card mb-2" style="padding:14px 16px;border-left:3px solid {{ '#c7cbe0' if closed else 'var(--green)' }}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="font-size:15px;font-weight:700;color:var(--text)">{{ s.title }}</div>
+        <span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap;
+          background:{{ '#eceef4' if closed else 'var(--green)' }};color:{{ 'var(--text3)' if closed else '#fff' }}">{{ '종료' if closed else '진행중' }}</span>
+      </div>
+      <div style="margin-top:6px;font-size:12px;color:var(--text3);font-weight:600">
+        {{ '✓ 응답완료' if s.responded else '미응답' }} · 참여 {{ s.n_resp }}/{{ s.n_aud }}명 ({{ s.rate }}%)
+      </div>
+      {% if not s.anonymous and s.nonresp %}
+      <div style="margin-top:5px;font-size:11.5px;color:var(--text3);line-height:1.5">미응답: {{ s.nonresp|join(', ') }}</div>
+      {% elif s.anonymous and s.n_aud > s.n_resp %}
+      <div style="margin-top:5px;font-size:11.5px;color:var(--text3)">미응답 {{ s.n_aud - s.n_resp }}명(무기명이라 인원수만 표시)</div>
+      {% endif %}
+    </div>
+    {% else %}
     <a href="/survey/{{ s.id }}" class="c-card mb-2" style="display:block;text-decoration:none;padding:14px 16px;border-left:3px solid var(--accent)">
       <div style="font-size:15px;font-weight:700;color:var(--text)">{{ s.title }}</div>
       {% if s.description %}<div class="t2 fs13" style="margin-top:3px">{{ s.description }}</div>{% endif %}
       <div style="margin-top:7px;font-size:12px;color:var(--accent2);font-weight:600">{{ s.questions|length }}문항 · {{ '🔒 익명' if s.anonymous else '실명' }} · 응답하기 ›</div>
+      <div style="margin-top:5px;font-size:11px;color:var(--text3)">참여 {{ s.n_resp }}/{{ s.n_aud }}명 ({{ s.rate }}%)</div>
+      {% if s.created_by %}<div style="margin-top:5px;font-size:11px;color:var(--text3)">🖊 {{ s.created_by }}{% if s.created_at %} · {{ s.created_at.strftime('%m-%d') }}{% endif %}</div>{% endif %}
     </a>
+    {% endif %}
     {% endfor %}
   {% else %}
-  <div class="c-card mb-3" style="padding:20px;text-align:center;color:var(--text3)">참여할 설문이 없습니다 🙂</div>
+  <div class="c-card mb-3" style="padding:20px;text-align:center;color:var(--text3)">진행중이거나 종료된 설문이 없습니다 🙂</div>
   {% endif %}
-  {% set answered = surveys|selectattr('responded')|list %}
-  {% if answered %}<div class="t2 fs11" style="margin:4px 2px 16px">✓ 응답완료: {% for s in answered %}{{ s.title }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
 
   <div class="sec-lbl">경조사</div>
   {% if conds %}

@@ -162,6 +162,8 @@
        잠시 후 다시 시도해 주세요.</div>
   {% elif err == 'expired' %}
   <div class="err">⚠ 세션이 만료되었습니다. 다시 로그인해 주세요.</div>
+  {% elif err == 'no_access' %}
+  <div class="err">⚠ 식수 모바일 사용 권한이 없습니다.<br>관리자 승인을 기다려 주세요.</div>
   {% endif %}
 
   <form method="post">

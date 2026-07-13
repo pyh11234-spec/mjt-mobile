@@ -36,19 +36,17 @@
     </div>
   </a>
 
-  <!-- 설문·경조사 (있을 때만) -->
-  {% if n_survey or n_cond %}
+  <!-- 설문·경조사 (항상 표시 — 없을 땐 안내만) -->
   <a href="/surveys" class="c-card mb-3" style="display:block;text-decoration:none;padding:14px 16px;border-left:3px solid var(--accent)">
     <div style="display:flex;align-items:center;gap:11px">
       <div style="font-size:28px;line-height:1">📋</div>
       <div>
         <div style="font-size:14px;font-weight:700;color:var(--text)">설문 · 경조사</div>
-        <div class="t2 fs13" style="margin-top:2px">{% if n_survey %}응답할 설문 {{ n_survey }}건{% endif %}{% if n_survey and n_cond %} · {% endif %}{% if n_cond %}경조사 {{ n_cond }}건{% endif %}</div>
+        <div class="t2 fs13" style="margin-top:2px">{% if n_survey %}응답할 설문 {{ n_survey }}건{% endif %}{% if n_survey and n_cond %} · {% endif %}{% if n_cond %}경조사 {{ n_cond }}건{% endif %}{% if not n_survey and not n_cond %}현재 응답 대기 중인 설문 없음{% endif %}</div>
       </div>
       {% if n_survey %}<span style="margin-left:auto;background:var(--red);color:#fff;font-size:12px;font-weight:800;padding:3px 9px;border-radius:12px">{{ n_survey }}</span>{% else %}<div style="margin-left:auto;font-size:18px;color:var(--accent)">›</div>{% endif %}
     </div>
   </a>
-  {% endif %}
 
   <!-- 삼겹살데이 참석 (다가오는 일정 있을 때만) -->
   {% if samgyup_next %}
@@ -212,6 +210,35 @@
     <div style="padding: 8px 16px; border-top: 1px solid var(--border)">
       <a href="/meal" style="color: var(--accent); font-size: 12px">식수 상세 보기 →</a>
     </div>
+  </div>
+
+  <!-- 다른 메뉴 현황 — 대시보드에서 바로 확인(각 메뉴 실제 수치) -->
+  <div class="sec-lbl">📊 다른 메뉴 현황</div>
+  <style>
+   .qgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
+   .qtile{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--card);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:12px;text-decoration:none;box-shadow:var(--shadow)}
+   .qtile:active{transform:scale(.97)}
+   .qtile-ico{font-size:22px;line-height:1}
+   .qtile-num{font-size:18px;font-weight:800;color:var(--text)}
+   .qtile-lbl{font-size:11px;color:var(--text2);margin-top:1px}
+  </style>
+  <div class="qgrid">
+    <a href="/ot_schedule" class="qtile">
+      <div class="qtile-ico">⏰</div>
+      <div><div class="qtile-num">잔업{{ n_ot_today }}·특근{{ n_sp_today }}</div><div class="qtile-lbl">연장근로 실시간</div></div>
+    </a>
+    <a href="/equipment" class="qtile">
+      <div class="qtile-ico">⚙️</div>
+      <div><div class="qtile-num">{{ n_eq_issue }}<span style="font-size:12px;font-weight:400"> 건</span></div><div class="qtile-lbl">설비PM 진행중 이슈</div></div>
+    </a>
+    <a href="/improvement" class="qtile">
+      <div class="qtile-ico">💡</div>
+      <div><div class="qtile-num">{{ n_imp_year }}<span style="font-size:12px;font-weight:400"> 건</span></div><div class="qtile-lbl">개선제안 올해 누적</div></div>
+    </a>
+    <a href="/calendar" class="qtile">
+      <div class="qtile-ico">📆</div>
+      <div><div class="qtile-num">{{ month_events|length }}<span style="font-size:12px;font-weight:400"> 건</span></div><div class="qtile-lbl">이번 달 행사</div></div>
+    </a>
   </div>
 
   <div class="t2 fs11 text-end mb-3">마지막 업데이트: {{ updated }} &nbsp;·&nbsp; 캐시 5분</div>

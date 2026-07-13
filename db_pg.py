@@ -79,6 +79,23 @@ def execute(sql, params=None) -> int:
         return cur.rowcount
 
 
+# ── 관리 공휴일(holidays) — 데스크탑 meal_repo와 동일 테이블(SSoT 통일 2026-07-13) ──
+def get_managed_holidays() -> dict:
+    return {(r['holiday_date'].isoformat() if hasattr(r['holiday_date'], 'isoformat') else r['holiday_date']): (r['name'] or '')
+            for r in query("SELECT holiday_date, name FROM holidays")}
+
+
+def add_managed_holiday(date_str: str, name: str) -> None:
+    execute(
+        "INSERT INTO holidays (holiday_date, name) VALUES (%s,%s) "
+        "ON CONFLICT (holiday_date) DO UPDATE SET name=EXCLUDED.name",
+        (date_str, name))
+
+
+def delete_managed_holiday(date_str: str) -> None:
+    execute("DELETE FROM holidays WHERE holiday_date=%s", (date_str,))
+
+
 # ══════════════════════════════════════════════════════════════════
 # 식수(급식) 데이터 — Supabase SSoT.  (데스크탑 meal_repo와 동일 역할)
 # 읽기는 기존 템플릿/소비처가 위치색인을 쓰므로 Sheets와 동일한 컬럼 순서의
@@ -369,17 +386,92 @@ def has_approver_pw(factory: str, level: str) -> bool:
     return bool(r and r['pw_hash'])
 
 
+# ── 식당 전용 단말(dining_terminal) — 데스크탑 dining_lock의 서버측 대응(동일 SQL) ──
+# 다른 LAN 데스크탑이 '/api/desktop/dining/*'로 호출 → 여기서 mjt DB 처리(직결 미노출).
+def _dining_ensure():
+    execute("""CREATE TABLE IF NOT EXISTS dining_terminal (
+        id INTEGER PRIMARY KEY DEFAULT 1, device_guid TEXT, hostname TEXT,
+        designated_at TIMESTAMP DEFAULT now(),
+        CONSTRAINT dining_terminal_single CHECK (id = 1))""")
+
+def dining_get():
+    _dining_ensure()
+    r = query_one("SELECT device_guid, hostname, designated_at FROM dining_terminal WHERE id=1")
+    return r if (r and r.get('device_guid')) else None
+
+def dining_claim(guid, host) -> bool:
+    _dining_ensure()
+    n = execute("""INSERT INTO dining_terminal (id, device_guid, hostname, designated_at)
+        VALUES (1, %s, %s, now()) ON CONFLICT (id) DO UPDATE
+        SET device_guid=EXCLUDED.device_guid, hostname=EXCLUDED.hostname, designated_at=now()
+        WHERE dining_terminal.device_guid IS NULL""", (guid, host))
+    return bool(n and n > 0)
+
+def dining_force_claim(guid, host):
+    _dining_ensure()
+    execute("""INSERT INTO dining_terminal (id, device_guid, hostname, designated_at)
+        VALUES (1, %s, %s, now()) ON CONFLICT (id) DO UPDATE
+        SET device_guid=EXCLUDED.device_guid, hostname=EXCLUDED.hostname, designated_at=now()""",
+        (guid, host))
+
+def dining_release():
+    _dining_ensure()
+    execute("UPDATE dining_terminal SET device_guid=NULL, hostname=NULL WHERE id=1")
+
+
+# ── 얼굴 임베딩(face_embeddings, 단일행 id=1) — 데스크탑 face_sync의 서버측 대응 ──
+def face_meta():
+    return query_one("SELECT uploaded_at, emp_count, uploaded_by, uploader_pc "
+                     "FROM face_embeddings WHERE id=1")
+
+def face_data():
+    return query_one("SELECT emb_data, labels_json FROM face_embeddings WHERE id=1")
+
+def face_labels():
+    r = query_one("SELECT labels_json FROM face_embeddings WHERE id=1")
+    return (r or {}).get('labels_json')
+
+def face_upload(emb_bytes, labels_json, emp_count, by_emp, pc_name, note):
+    execute("""INSERT INTO face_embeddings
+            (id, emb_data, labels_json, emp_count, uploaded_by, uploader_pc, uploaded_at, note)
+        VALUES (1, %s, %s, %s, %s, %s, NOW(), %s)
+        ON CONFLICT (id) DO UPDATE SET
+            emb_data=EXCLUDED.emb_data, labels_json=EXCLUDED.labels_json,
+            emp_count=EXCLUDED.emp_count, uploaded_by=EXCLUDED.uploaded_by,
+            uploader_pc=EXCLUDED.uploader_pc, uploaded_at=NOW(), note=EXCLUDED.note""",
+        (emb_bytes, labels_json, emp_count, by_emp, pc_name, note))
+
+
 # ── 사내 설문·경조사 (허브가 생성, 직원이 모바일로 응답·참여 — 같은 Supabase 공유) ──
+def _survey_audience_pg(target_type: str, target_value: str):
+    """이 설문 대상 직원(재직, LEGACY 제외) — 허브 app.py `_survey_audience()`와 동일 로직으로 대칭 유지
+    (전사 규칙 #36: 흡수·공유 로직은 학습 비대칭 없이 원본과 같은 기준으로)."""
+    rows = query("SELECT emp_id, name, dept, factory, biz_entity FROM employees WHERE active=true")
+    rows = [e for e in rows if not (e.get('name') or '').startswith('LEGACY')]
+    tt, tv = (target_type or 'all'), (target_value or '')
+    if tt == 'dept':
+        rows = [e for e in rows if (e.get('dept') or '').strip() == tv]
+    elif tt == 'factory':
+        rows = [e for e in rows if (e.get('factory') or '').strip() == tv]
+    elif tt == 'biz':
+        rows = [e for e in rows if (e.get('biz_entity') or '').strip() == tv]
+    return rows
+
+
 def surveys_for(emp_id: str):
-    """이 직원 대상 진행중 설문(대상 매칭) + 응답여부 + 문항(보기 리스트)."""
+    """이 직원 대상 설문(진행중+마감, 대상 매칭) + 응답여부·참여율·(유기명이면)미응답자 명단.
+    ★2026-07-12(팀장님 요청): 응답해도 목록에서 사라지지 않고 계속 남도록 — status='진행중'만 보던 것을
+    '진행중'+'마감' 둘 다 포함해 항상 누적 표시. 참여현황(참여율·진행/종료·미응답 현황)을 함께 계산."""
     if not emp_id:
         return []
     emp = query_one("SELECT dept, factory, biz_entity FROM employees WHERE UPPER(emp_id)=%s",
                     (emp_id.strip().upper(),))
     if not emp:
         return []
-    rows = query("SELECT id, title, description, anonymous, target_type, target_value "
-                 "FROM surveys WHERE status='진행중' ORDER BY created_at DESC")
+    rows = query("SELECT id, title, description, anonymous, target_type, target_value, "
+                 "status, created_by, created_at "
+                 "FROM surveys WHERE status IN ('진행중','마감') "
+                 "ORDER BY (status='진행중') DESC, created_at DESC")
     out = []
     for s in rows:
         tt, tv = (s.get('target_type') or 'all'), (s.get('target_value') or '')
@@ -389,9 +481,15 @@ def surveys_for(emp_id: str):
             continue
         if tt == 'biz' and (emp.get('biz_entity') or '') != tv:
             continue
-        s['responded'] = query_one(
-            "SELECT 1 FROM survey_responses WHERE survey_id=%s AND emp_id=%s LIMIT 1",
-            (s['id'], emp_id)) is not None
+        resp_rows = query("SELECT emp_id FROM survey_responses WHERE survey_id=%s", (s['id'],))
+        resp_ids = {r['emp_id'] for r in resp_rows}
+        s['responded'] = emp_id in resp_ids
+        aud = _survey_audience_pg(tt, tv)
+        s['n_aud'] = len(aud)
+        s['n_resp'] = len(resp_ids)
+        s['rate'] = round(s['n_resp'] / s['n_aud'] * 100) if s['n_aud'] else 0
+        # 무기명은 인원수만(개인 식별 불가 원칙 유지), 실명은 안 한 사람 이름까지
+        s['nonresp'] = [] if s['anonymous'] else [a['name'] for a in aud if a['emp_id'] not in resp_ids]
         qs = query('SELECT id, qtype, text, options, required FROM survey_questions '
                    'WHERE survey_id=%s ORDER BY "order", id', (s['id'],))
         for q in qs:
@@ -519,6 +617,21 @@ def add_notice_comment(emp_id: str, nid: int, body: str):
 
 def unread_notice_count(emp_id: str):
     return sum(1 for n in notices_for(emp_id) if not n.get('read'))
+
+
+def add_feedback(app_key, app_name, category, title, content, page, emp_id, emp_name, contact):
+    """전사 개선·고장 접수 — 허브와 같은 mjt DB의 feedbacks(SSoT)에 직접 적재. 시크릿 마스터가 취합."""
+    content = (content or '').strip()
+    if not content:
+        return None
+    with cursor() as cur:
+        cur.execute(
+            "INSERT INTO feedbacks (app_key, app_name, category, title, content, page, "
+            "emp_id, emp_name, contact, status, created_at, updated_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'접수', now(), now()) RETURNING id",
+            (app_key, app_name, (category or '개선제안')[:20], (title or '')[:200], content[:5000],
+             (page or '')[:200], (emp_id or '')[:40], (emp_name or '')[:100], (contact or '')[:100]))
+        return cur.fetchone()['id']
 
 
 # ── 회사일정(company_events) — 데스크탑 att_repo와 같은 Supabase 표(Sheets→Supabase 통일) ──

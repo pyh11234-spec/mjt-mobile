@@ -64,7 +64,7 @@ _login_lock = threading.Lock()
 
 # 인증 면제 경로 (로그인/정적 자산 등)
 _AUTH_EXEMPT_PREFIX = ('/login', '/logout', '/static', '/api/health',
-                       '/favicon.ico', '/cron/')
+                       '/favicon.ico', '/cron/', '/api/desktop/')  # 데스크탑 머신API=X-API-Key로 별도 보호
 
 
 def _ip():
@@ -113,6 +113,42 @@ def _verify_emp_active(emp_id: str):
     except Exception:
         pass
     return None
+
+
+_SIKSU_APP_KEY = 'siksu'
+
+
+def _hub_access_allowed(emp_id: str, name: str) -> bool:
+    """전사 권한체계(2층 RBAC) — 허브 API가 아니라 같은 mjt DB(app_policies/app_roles)를 직접 조회해
+    pin_login_api와 동일한 판정을 내린다(식수는 hub_client 없이 DB 직접조회 구조라 별도 구현).
+    app_policies에 이 앱(siksu) 행이 없거나 open이면 True(통과). restricted인데 app_roles에
+    역할이 없으면 False(차단) + access_requests에 대기중 요청이 없을 때만 1건 기록.
+    ★fail-open: DB 조회 자체가 실패하면(연결 문제 등) True(통과) — 오프라인 내구성 우선(#25 원칙과 동일)."""
+    try:
+        import db_pg
+        if not db_pg.is_available():
+            return True
+        pol = db_pg.query_one(
+            "SELECT access_mode FROM app_policies WHERE app_key=%s", (_SIKSU_APP_KEY,))
+        mode = (pol.get('access_mode') if pol else None) or 'open'
+        if mode != 'restricted':
+            return True
+        role = db_pg.query_one(
+            "SELECT role FROM app_roles WHERE emp_id=%s AND app_key=%s",
+            (emp_id, _SIKSU_APP_KEY))
+        if role:
+            return True
+        pending = db_pg.query_one(
+            "SELECT id FROM access_requests WHERE emp_id=%s AND app_key=%s AND status='대기'",
+            (emp_id, _SIKSU_APP_KEY))
+        if not pending:
+            db_pg.execute(
+                "INSERT INTO access_requests (emp_id, name, app_key, status, requested_at) "
+                "VALUES (%s, %s, %s, '대기', NOW())",
+                (emp_id, name, _SIKSU_APP_KEY))
+        return False
+    except Exception:
+        return True
 
 
 def _phone_last4(phone: str) -> str:
@@ -221,6 +257,12 @@ def login():
         return render_template('login.html', err='wrong_pin',
                                next=nxt, emp_id=emp_id)
 
+    # ③ 전사 권한체계 — 이 앱이 '제한'이고 미승인이면 소프트 게이트(기본 '개방'이면 영향 없음)
+    if not _hub_access_allowed(emp['emp_id'], emp['name']):
+        _log_access(emp_id, ip, '/login', success=False)
+        return render_template('login.html', err='no_access',
+                               next=nxt, emp_id=emp_id)
+
     # 통과 → 세션 발급
     _clear_failure(ip)
     session.permanent = True
@@ -238,6 +280,289 @@ def logout():
     if emp_id:
         _log_access(emp_id, _ip(), '/logout', success=True)
     return redirect(url_for('login'))
+
+
+# ── 데스크탑(다른 LAN) 머신 API — X-API-Key 보호. 같은 mjt DB, raw 5432 미노출 ──
+#    결정안(호스팅_260630): 다른 LAN 데스크탑 = 허브/서버 HTTP API 경유. dining 슬라이스.
+def _api_key_ok():
+    want = os.environ.get('MJT_API_KEY', '').strip()
+    if not want:
+        return False, 503, '서버에 MJT_API_KEY 미설정'
+    got = (request.headers.get('X-API-Key') or request.args.get('key') or '').strip()
+    if got != want:
+        return False, 401, 'unauthorized'
+    return True, 200, ''
+
+@app.route('/api/desktop/dining/designation')
+def api_desktop_dining_get():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    import db_pg
+    return jsonify(ok=True, data=db_pg.dining_get())
+
+@app.route('/api/desktop/dining/claim', methods=['POST'])
+def api_desktop_dining_claim():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    b = request.get_json(silent=True) or {}
+    import db_pg
+    claimed = db_pg.dining_claim((b.get('guid') or '').strip(), (b.get('host') or '').strip())
+    return jsonify(ok=True, claimed=bool(claimed), data=db_pg.dining_get())
+
+@app.route('/api/desktop/dining/force_claim', methods=['POST'])
+def api_desktop_dining_force():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    b = request.get_json(silent=True) or {}
+    import db_pg
+    db_pg.dining_force_claim((b.get('guid') or '').strip(), (b.get('host') or '').strip())
+    return jsonify(ok=True, data=db_pg.dining_get())
+
+@app.route('/api/desktop/dining/release', methods=['POST'])
+def api_desktop_dining_release():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    import db_pg
+    db_pg.dining_release()
+    return jsonify(ok=True, data=db_pg.dining_get())
+
+
+# ── 데스크탑 meal RPC — 서버가 부모 meal_repo를 그대로 실행(데스크탑과 동일 로직). 화이트리스트 필수 ──
+_MEAL_RPC_ALLOW = {
+    'has_lunch_req', 'add_lunch_req', 'list_lunch_req', 'add_lunch_actual', 'has_lunch_actual',
+    'list_lunch_actual', 'has_dinner', 'add_dinner', 'list_dinner', 'get_dinner_setting',
+    'save_dinner_setting', 'list_dinner_settings_from', 'has_weekend', 'add_weekend', 'list_weekend',
+    'add_guest', 'list_guests', 'list_guests_for_date', 'list_guests_by_visit', 'list_guests_all',
+    'delete_lunch_req', 'delete_lunch_actual', 'delete_dinner', 'delete_weekend', 'delete_guest',
+    'get_settings', 'save_setting', 'get_wkend_setting', 'save_wkend_setting', 'list_wkend_settings_from',
+    'list_delivery_vendors', 'list_delivery_menus', 'list_delivery_menus_raw', 'upsert_delivery_menu',
+    'has_delivery_menu', 'delete_delivery_menu', 'list_chinese_menus', 'upsert_chinese_menu',
+    'has_chinese_menu', 'delete_chinese_menu', 'list_chinese_menus_raw', 'get_managed_holidays',
+    'add_managed_holiday', 'delete_managed_holiday', 'get_today_menu', 'save_today_menu',
+    'get_month_menus', 'get_admin', 'log_delete', 'is_available',
+}
+
+@app.route('/api/desktop/meal/call', methods=['POST'])
+def api_desktop_meal_call():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    b = request.get_json(silent=True) or {}
+    fn = (b.get('fn') or '').strip()
+    if fn not in _MEAL_RPC_ALLOW:
+        return jsonify(ok=False, msg=f'허용되지 않은 fn: {fn}'), 400
+    try:
+        import sys as _s, os as _o
+        _p = _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))
+        if _p not in _s.path:
+            _s.path.insert(0, _p)
+        import meal_repo
+        res = getattr(meal_repo, fn)(*(b.get('args') or []), **(b.get('kwargs') or {}))
+        return jsonify(ok=True, result=res)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e)), 500
+
+
+# ── 데스크탑 face 동기화 API — 얼굴 임베딩(BYTEA)은 base64로 전송. X-API-Key 보호 ──
+@app.route('/api/desktop/face/meta')
+def api_desktop_face_meta():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    import db_pg
+    m = db_pg.face_meta()
+    if m and m.get('uploaded_at') is not None and hasattr(m['uploaded_at'], 'isoformat'):
+        m = dict(m)
+        m['uploaded_at'] = m['uploaded_at'].isoformat()
+    return jsonify(ok=True, data=m)
+
+@app.route('/api/desktop/face/data')
+def api_desktop_face_data():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    import db_pg, base64 as _b64
+    r = db_pg.face_data()
+    if not r or r.get('emb_data') is None:
+        return jsonify(ok=True, data=None)
+    return jsonify(ok=True, data={'emb_b64': _b64.b64encode(bytes(r['emb_data'])).decode('ascii'),
+                                  'labels_json': r.get('labels_json') or '{}'})
+
+@app.route('/api/desktop/face/labels')
+def api_desktop_face_labels():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    import db_pg
+    return jsonify(ok=True, labels_json=db_pg.face_labels())
+
+@app.route('/api/desktop/face/upload', methods=['POST'])
+def api_desktop_face_upload():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    import db_pg, base64 as _b64
+    b = request.get_json(silent=True) or {}
+    try:
+        emb = _b64.b64decode(b.get('emb_b64') or '')
+        db_pg.face_upload(emb, b.get('labels_json') or '{}', int(b.get('emp_count') or 0),
+                          b.get('by_emp') or '', b.get('pc_name') or '', b.get('note') or '')
+        return jsonify(ok=True)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e)), 500
+
+
+# ── 데스크탑 emp RPC — 서버가 부모 emp_repo를 그대로 실행(사원 데스크탑용). 화이트리스트 필수 ──
+_EMP_RPC_ALLOW = {
+    'get_employees', 'find_emp', 'upsert_emp', 'deactivate_emp', 'update_emp_fields',
+    'delete_emp', 'get_pin', 'set_pin', 'ensure_pin', 'verify_pin',
+}
+
+@app.route('/api/desktop/emp/call', methods=['POST'])
+def api_desktop_emp_call():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    b = request.get_json(silent=True) or {}
+    fn = (b.get('fn') or '').strip()
+    if fn not in _EMP_RPC_ALLOW:
+        return jsonify(ok=False, msg=f'허용되지 않은 fn: {fn}'), 400
+    try:
+        import sys as _s, os as _o
+        _p = _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))
+        if _p not in _s.path:
+            _s.path.insert(0, _p)
+        import emp_repo
+        res = getattr(emp_repo, fn)(*(b.get('args') or []), **(b.get('kwargs') or {}))
+        return jsonify(ok=True, result=res)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e)), 500
+
+
+# ── 데스크탑 att RPC — 서버가 부모 att_repo를 그대로 실행(근태 데스크탑용). 화이트리스트 필수 ──
+_ATT_RPC_ALLOW = {
+    'get_att_records', 'get_att_year', 'add_att', 'delete_att', 'update_att',
+    'weekend_workers', 'is_weekend_worker', 'get_seasonal', 'update_seasonal_use',
+    'update_seasonal_eligible', 'sync_seasonal', 'get_events', 'get_events_year',
+    'add_event', 'delete_event', 'get_approval', 'revert_approval', 'save_approval',
+    'list_duties', 'upsert_duty', 'set_duty_name', 'delete_duty', 'clear_duties_year',
+    'duty_mail_already_sent', 'mark_duty_mail_sent', 'list_roster', 'save_roster',
+    'list_approval_lines', 'get_approval_line', 'has_approver_pw', 'check_approver_pw',
+    'set_approver_pw', 'set_approver_info', 'is_available',
+    'appr_load_records', 'appr_status', 'appr_upsert', 'appr_get_id', 'appr_update_records',
+}
+
+@app.route('/api/desktop/att/call', methods=['POST'])
+def api_desktop_att_call():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    b = request.get_json(silent=True) or {}
+    fn = (b.get('fn') or '').strip()
+    if fn not in _ATT_RPC_ALLOW:
+        return jsonify(ok=False, msg=f'허용되지 않은 fn: {fn}'), 400
+    try:
+        import sys as _s, os as _o
+        _p = _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))
+        if _p not in _s.path:
+            _s.path.insert(0, _p)
+        import att_repo
+        res = getattr(att_repo, fn)(*(b.get('args') or []), **(b.get('kwargs') or {}))
+        return jsonify(ok=True, result=res)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e)), 500
+
+
+# ── 데스크탑 개선제안 RPC — 서버가 부모 improvement_repo를 그대로 실행. 화이트리스트 필수 ──
+_IMP_RPC_ALLOW = {
+    'dash_counts', 'year_stats', 'quarter_stats', 'proposer_stats', 'list_categories',
+    'search_similar', 'list_recruit', 'get_suggestion', 'grade_reward', 'search_history',
+    'sustain_queue', 'insert_suggestion', 'set_driver', 'update_eval', 'is_available',
+}
+
+@app.route('/api/desktop/imp/call', methods=['POST'])
+def api_desktop_imp_call():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    b = request.get_json(silent=True) or {}
+    fn = (b.get('fn') or '').strip()
+    if fn not in _IMP_RPC_ALLOW:
+        return jsonify(ok=False, msg=f'허용되지 않은 fn: {fn}'), 400
+    try:
+        import sys as _s, os as _o
+        _p = _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))
+        if _p not in _s.path:
+            _s.path.insert(0, _p)
+        import improvement_repo
+        res = getattr(improvement_repo, fn)(*(b.get('args') or []), **(b.get('kwargs') or {}))
+        return jsonify(ok=True, result=res)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e)), 500
+
+
+# ── 데스크탑 공정운영/CAPA RPC — 서버가 부모 process_repo를 그대로 실행. 화이트리스트 필수 ──
+_PROCESS_RPC_ALLOW = {
+    'fetch_kpi', 'fetch_process_oee', 'fetch_downtime_by_code', 'fetch_code_legend',
+    'save_code_legend', 'fetch_capa_list', 'fetch_capa', 'create_capa', 'update_capa_status',
+    'is_available',
+}
+
+@app.route('/api/desktop/process/call', methods=['POST'])
+def api_desktop_process_call():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    b = request.get_json(silent=True) or {}
+    fn = (b.get('fn') or '').strip()
+    if fn not in _PROCESS_RPC_ALLOW:
+        return jsonify(ok=False, msg=f'허용되지 않은 fn: {fn}'), 400
+    try:
+        import sys as _s, os as _o
+        _p = _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))
+        if _p not in _s.path:
+            _s.path.insert(0, _p)
+        import process_repo
+        res = getattr(process_repo, fn)(*(b.get('args') or []), **(b.get('kwargs') or {}))
+        return jsonify(ok=True, result=res)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e)), 500
+
+
+# ── 데스크탑 설비PM RPC — 서버가 부모 equipment_repo를 그대로 실행. 화이트리스트 필수 ──
+_EQUIP_RPC_ALLOW = {
+    'kpi_counts', 'issue_queue', 'list_processes', 'list_equipment', 'filter_equipment',
+    'all_eq_ids', 'eq_info', 'eq_row', 'eq_name', 'search_issues', 'search_history',
+    'master_list', 'eq_history', 'pm_get', 'pm_alert_cfg', 'pm_set',
+    'add_issue_selfsolve', 'add_issue_transfer', 'update_machine', 'add_machine',
+    'deactivate_machine', 'delete_machine', 'is_available',
+    'issue_detail', 'issue_history', 'issue_status', 'issue_eq_detail',
+    'add_issue_history', 'set_issue_inspecting', 'set_issue_complete',
+}
+
+@app.route('/api/desktop/equip/call', methods=['POST'])
+def api_desktop_equip_call():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    b = request.get_json(silent=True) or {}
+    fn = (b.get('fn') or '').strip()
+    if fn not in _EQUIP_RPC_ALLOW:
+        return jsonify(ok=False, msg=f'허용되지 않은 fn: {fn}'), 400
+    try:
+        import sys as _s, os as _o
+        _p = _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))
+        if _p not in _s.path:
+            _s.path.insert(0, _p)
+        import equipment_repo
+        res = getattr(equipment_repo, fn)(*(b.get('args') or []), **(b.get('kwargs') or {}))
+        return jsonify(ok=True, result=res)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e)), 500
 
 
 @app.route('/api/health')
@@ -736,56 +1061,610 @@ def calc_ot_status(emps, att_rows, year, month):
     rows.sort(key=lambda r: (status_order[r['status']], -r['total_ot']))
     return rows
 
-# ── 공휴일 DB ────────────────────────────────────────────────────
-def _build_holiday_db():
-    db = {}
-    fixed = {
-        '01-01': '신정',      '03-01': '삼일절',     '05-01': '근로자의날',
-        '05-05': '어린이날',  '06-06': '현충일',     '08-15': '광복절',
-        '10-03': '개천절',    '10-09': '한글날',     '12-25': '성탄절',
-    }
-    for yr in range(2025, 2051):
-        for mmdd, name in fixed.items():
-            db[f'{yr}-{mmdd}'] = name
-    lunar = {
-        '2026-02-16':'설날 연휴','2026-02-17':'설날','2026-02-18':'설날 연휴',
-        '2026-05-25':'부처님오신날',
-        '2026-09-24':'추석 연휴','2026-09-25':'추석','2026-09-26':'추석 연휴',
-        '2027-02-05':'설날 연휴','2027-02-06':'설날','2027-02-07':'설날 연휴',
-        '2027-05-13':'부처님오신날',
-        '2027-09-14':'추석 연휴','2027-09-15':'추석','2027-09-16':'추석 연휴',
-        '2028-01-26':'설날 연휴','2028-01-27':'설날','2028-01-28':'설날 연휴',
-        '2028-05-02':'부처님오신날',
-        '2028-10-02':'추석 연휴','2028-10-03':'추석','2028-10-04':'추석 연휴',
-        '2029-02-12':'설날 연휴','2029-02-13':'설날','2029-02-14':'설날 연휴',
-        '2029-05-21':'부처님오신날',
-        '2029-10-05':'추석','2029-10-06':'추석 연휴',
-        '2030-02-02':'설날 연휴','2030-02-03':'설날','2030-02-04':'설날 연휴',
-        '2030-05-11':'부처님오신날',
-        '2030-09-22':'추석 연휴','2030-09-23':'추석','2030-09-24':'추석 연휴',
-        '2031-01-22':'설날 연휴','2031-01-23':'설날','2031-01-24':'설날 연휴',
-        '2031-05-28':'부처님오신날',
-        '2031-09-11':'추석 연휴','2031-09-12':'추석','2031-09-13':'추석 연휴',
-        '2032-02-10':'설날 연휴','2032-02-11':'설날','2032-02-12':'설날 연휴',
-        '2032-05-16':'부처님오신날',
-        '2032-09-29':'추석 연휴','2032-09-30':'추석','2032-10-01':'추석 연휴',
-        '2033-01-30':'설날 연휴','2033-01-31':'설날','2033-02-01':'설날 연휴',
-        '2033-05-05':'부처님오신날',
-        '2033-09-18':'추석 연휴','2033-09-19':'추석','2033-09-20':'추석 연휴',
-        '2034-02-18':'설날 연휴','2034-02-19':'설날','2034-02-20':'설날 연휴',
-        '2034-05-25':'부처님오신날',
-        '2034-10-07':'추석 연휴','2034-10-08':'추석','2034-10-09':'추석 연휴',
-        '2035-02-07':'설날 연휴','2035-02-08':'설날','2035-02-09':'설날 연휴',
-        '2035-05-14':'부처님오신날',
-        '2035-09-26':'추석 연휴','2035-09-27':'추석','2035-09-28':'추석 연휴',
-    }
-    db.update(lunar)
-    return db
-
-BASE_HOLIDAYS = _build_holiday_db()
+# ── 공휴일 DB (holidays 패키지 KR 로케일로 생성 + 근로자의날·MJT 창립기념일 별도 추가 · 2026-07-13) ──
+# 관공서 공휴일에 관한 규정 + 대체공휴일 + 선거일(대선/총선/지선, 확정 주기 기준) 전부 포함.
+# 재생성: pip install holidays 후 holidays.KR(years=range(2025,2051)) + 매년 05-01·09-19 추가.
+BASE_HOLIDAYS = {
+    # 2025
+    '2025-01-01': '신정연휴',
+    '2025-01-27': '임시공휴일',
+    '2025-01-28': '설날 전날',
+    '2025-01-29': '설날',
+    '2025-01-30': '설날 다음날',
+    '2025-03-01': '삼일절',
+    '2025-03-03': '삼일절 대체 휴일',
+    '2025-05-01': '근로자의날',
+    '2025-05-05': '부처님오신날',
+    '2025-05-06': '부처님오신날 대체 휴일',
+    '2025-06-03': '대통령 선거일',
+    '2025-06-06': '현충일',
+    '2025-08-15': '광복절',
+    '2025-09-19': 'MJT 창립기념일',
+    '2025-10-03': '개천절',
+    '2025-10-05': '추석 전날',
+    '2025-10-06': '추석',
+    '2025-10-07': '추석 다음날',
+    '2025-10-08': '추석 대체 휴일',
+    '2025-10-09': '한글날',
+    '2025-12-25': '기독탄신일',
+    # 2026
+    '2026-01-01': '신정연휴',
+    '2026-02-16': '설날 전날',
+    '2026-02-17': '설날',
+    '2026-02-18': '설날 다음날',
+    '2026-03-01': '삼일절',
+    '2026-03-02': '삼일절 대체 휴일',
+    '2026-05-01': '근로자의날',
+    '2026-05-05': '어린이날',
+    '2026-05-24': '부처님오신날',
+    '2026-05-25': '부처님오신날 대체 휴일',
+    '2026-06-03': '지방선거일',
+    '2026-06-06': '현충일',
+    '2026-07-17': '제헌절',
+    '2026-08-15': '광복절',
+    '2026-08-17': '광복절 대체 휴일',
+    '2026-09-19': 'MJT 창립기념일',
+    '2026-09-24': '추석 전날',
+    '2026-09-25': '추석',
+    '2026-09-26': '추석 다음날',
+    '2026-10-03': '개천절',
+    '2026-10-05': '개천절 대체 휴일',
+    '2026-10-09': '한글날',
+    '2026-12-25': '기독탄신일',
+    # 2027
+    '2027-01-01': '신정연휴',
+    '2027-02-06': '설날 전날',
+    '2027-02-07': '설날',
+    '2027-02-08': '설날 다음날',
+    '2027-02-09': '설날 대체 휴일',
+    '2027-03-01': '삼일절',
+    '2027-05-01': '근로자의날',
+    '2027-05-05': '어린이날',
+    '2027-05-13': '부처님오신날',
+    '2027-06-06': '현충일',
+    '2027-07-17': '제헌절',
+    '2027-08-15': '광복절',
+    '2027-08-16': '광복절 대체 휴일',
+    '2027-09-14': '추석 전날',
+    '2027-09-15': '추석',
+    '2027-09-16': '추석 다음날',
+    '2027-09-19': 'MJT 창립기념일',
+    '2027-10-03': '개천절',
+    '2027-10-04': '개천절 대체 휴일',
+    '2027-10-09': '한글날',
+    '2027-10-11': '한글날 대체 휴일',
+    '2027-12-25': '기독탄신일',
+    '2027-12-27': '기독탄신일 대체 휴일',
+    # 2028
+    '2028-01-01': '신정연휴',
+    '2028-01-26': '설날 전날',
+    '2028-01-27': '설날',
+    '2028-01-28': '설날 다음날',
+    '2028-03-01': '삼일절',
+    '2028-04-12': '국회의원 선거일',
+    '2028-05-01': '근로자의날',
+    '2028-05-02': '부처님오신날',
+    '2028-05-05': '어린이날',
+    '2028-06-06': '현충일',
+    '2028-07-17': '제헌절',
+    '2028-08-15': '광복절',
+    '2028-09-19': 'MJT 창립기념일',
+    '2028-10-02': '추석 전날',
+    '2028-10-03': '개천절',
+    '2028-10-04': '추석 다음날',
+    '2028-10-05': '추석 대체 휴일',
+    '2028-10-09': '한글날',
+    '2028-12-25': '기독탄신일',
+    # 2029
+    '2029-01-01': '신정연휴',
+    '2029-02-12': '설날 전날',
+    '2029-02-13': '설날',
+    '2029-02-14': '설날 다음날',
+    '2029-03-01': '삼일절',
+    '2029-05-01': '근로자의날',
+    '2029-05-05': '어린이날',
+    '2029-05-07': '어린이날 대체 휴일',
+    '2029-05-20': '부처님오신날',
+    '2029-05-21': '부처님오신날 대체 휴일',
+    '2029-06-06': '현충일',
+    '2029-07-17': '제헌절',
+    '2029-08-15': '광복절',
+    '2029-09-19': 'MJT 창립기념일',
+    '2029-09-21': '추석 전날',
+    '2029-09-22': '추석',
+    '2029-09-23': '추석 다음날',
+    '2029-09-24': '추석 대체 휴일',
+    '2029-10-03': '개천절',
+    '2029-10-09': '한글날',
+    '2029-12-25': '기독탄신일',
+    # 2030
+    '2030-01-01': '신정연휴',
+    '2030-02-02': '설날 전날',
+    '2030-02-03': '설날',
+    '2030-02-04': '설날 다음날',
+    '2030-02-05': '설날 대체 휴일',
+    '2030-03-01': '삼일절',
+    '2030-04-03': '대통령 선거일',
+    '2030-05-01': '근로자의날',
+    '2030-05-05': '어린이날',
+    '2030-05-06': '어린이날 대체 휴일',
+    '2030-05-09': '부처님오신날',
+    '2030-06-06': '현충일',
+    '2030-06-12': '지방선거일',
+    '2030-07-17': '제헌절',
+    '2030-08-15': '광복절',
+    '2030-09-11': '추석 전날',
+    '2030-09-12': '추석',
+    '2030-09-13': '추석 다음날',
+    '2030-09-19': 'MJT 창립기념일',
+    '2030-10-03': '개천절',
+    '2030-10-09': '한글날',
+    '2030-12-25': '기독탄신일',
+    # 2031
+    '2031-01-01': '신정연휴',
+    '2031-01-22': '설날 전날',
+    '2031-01-23': '설날',
+    '2031-01-24': '설날 다음날',
+    '2031-03-01': '삼일절',
+    '2031-03-03': '삼일절 대체 휴일',
+    '2031-05-01': '근로자의날',
+    '2031-05-05': '어린이날',
+    '2031-05-28': '부처님오신날',
+    '2031-06-06': '현충일',
+    '2031-07-17': '제헌절',
+    '2031-08-15': '광복절',
+    '2031-09-19': 'MJT 창립기념일',
+    '2031-09-30': '추석 전날',
+    '2031-10-01': '추석',
+    '2031-10-02': '추석 다음날',
+    '2031-10-03': '개천절',
+    '2031-10-09': '한글날',
+    '2031-12-25': '기독탄신일',
+    # 2032
+    '2032-01-01': '신정연휴',
+    '2032-02-10': '설날 전날',
+    '2032-02-11': '설날',
+    '2032-02-12': '설날 다음날',
+    '2032-03-01': '삼일절',
+    '2032-04-14': '국회의원 선거일',
+    '2032-05-01': '근로자의날',
+    '2032-05-05': '어린이날',
+    '2032-05-16': '부처님오신날',
+    '2032-05-17': '부처님오신날 대체 휴일',
+    '2032-06-06': '현충일',
+    '2032-07-17': '제헌절',
+    '2032-08-15': '광복절',
+    '2032-08-16': '광복절 대체 휴일',
+    '2032-09-18': '추석 전날',
+    '2032-09-19': 'MJT 창립기념일',
+    '2032-09-20': '추석 다음날',
+    '2032-09-21': '추석 대체 휴일',
+    '2032-10-03': '개천절',
+    '2032-10-04': '개천절 대체 휴일',
+    '2032-10-09': '한글날',
+    '2032-10-11': '한글날 대체 휴일',
+    '2032-12-25': '기독탄신일',
+    '2032-12-27': '기독탄신일 대체 휴일',
+    # 2033
+    '2033-01-01': '신정연휴',
+    '2033-01-30': '설날 전날',
+    '2033-01-31': '설날',
+    '2033-02-01': '설날 다음날',
+    '2033-02-02': '설날 대체 휴일',
+    '2033-03-01': '삼일절',
+    '2033-05-01': '근로자의날',
+    '2033-05-05': '어린이날',
+    '2033-05-06': '부처님오신날',
+    '2033-06-06': '현충일',
+    '2033-07-17': '제헌절',
+    '2033-08-15': '광복절',
+    '2033-09-07': '추석 전날',
+    '2033-09-08': '추석',
+    '2033-09-09': '추석 다음날',
+    '2033-09-19': 'MJT 창립기념일',
+    '2033-10-03': '개천절',
+    '2033-10-09': '한글날',
+    '2033-10-10': '한글날 대체 휴일',
+    '2033-12-25': '기독탄신일',
+    '2033-12-26': '기독탄신일 대체 휴일',
+    # 2034
+    '2034-01-01': '신정연휴',
+    '2034-02-18': '설날 전날',
+    '2034-02-19': '설날',
+    '2034-02-20': '설날 다음날',
+    '2034-02-21': '설날 대체 휴일',
+    '2034-03-01': '삼일절',
+    '2034-05-01': '근로자의날',
+    '2034-05-05': '어린이날',
+    '2034-05-25': '부처님오신날',
+    '2034-06-06': '현충일',
+    '2034-06-14': '지방선거일',
+    '2034-07-17': '제헌절',
+    '2034-08-15': '광복절',
+    '2034-09-19': 'MJT 창립기념일',
+    '2034-09-26': '추석 전날',
+    '2034-09-27': '추석',
+    '2034-09-28': '추석 다음날',
+    '2034-10-03': '개천절',
+    '2034-10-09': '한글날',
+    '2034-12-25': '기독탄신일',
+    # 2035
+    '2035-01-01': '신정연휴',
+    '2035-02-07': '설날 전날',
+    '2035-02-08': '설날',
+    '2035-02-09': '설날 다음날',
+    '2035-03-01': '삼일절',
+    '2035-04-04': '대통령 선거일',
+    '2035-05-01': '근로자의날',
+    '2035-05-05': '어린이날',
+    '2035-05-07': '어린이날 대체 휴일',
+    '2035-05-15': '부처님오신날',
+    '2035-06-06': '현충일',
+    '2035-07-17': '제헌절',
+    '2035-08-15': '광복절',
+    '2035-09-15': '추석 전날',
+    '2035-09-16': '추석',
+    '2035-09-17': '추석 다음날',
+    '2035-09-18': '추석 대체 휴일',
+    '2035-09-19': 'MJT 창립기념일',
+    '2035-10-03': '개천절',
+    '2035-10-09': '한글날',
+    '2035-12-25': '기독탄신일',
+    # 2036
+    '2036-01-01': '신정연휴',
+    '2036-01-27': '설날 전날',
+    '2036-01-28': '설날',
+    '2036-01-29': '설날 다음날',
+    '2036-01-30': '설날 대체 휴일',
+    '2036-03-01': '삼일절',
+    '2036-03-03': '삼일절 대체 휴일',
+    '2036-04-09': '국회의원 선거일',
+    '2036-05-01': '근로자의날',
+    '2036-05-03': '부처님오신날',
+    '2036-05-05': '어린이날',
+    '2036-05-06': '부처님오신날 대체 휴일',
+    '2036-06-06': '현충일',
+    '2036-07-17': '제헌절',
+    '2036-08-15': '광복절',
+    '2036-09-19': 'MJT 창립기념일',
+    '2036-10-03': '개천절',
+    '2036-10-04': '추석',
+    '2036-10-05': '추석 다음날',
+    '2036-10-06': '추석 대체 휴일',
+    '2036-10-07': '추석 대체 휴일',
+    '2036-10-09': '한글날',
+    '2036-12-25': '기독탄신일',
+    # 2037
+    '2037-01-01': '신정연휴',
+    '2037-02-14': '설날 전날',
+    '2037-02-15': '설날',
+    '2037-02-16': '설날 다음날',
+    '2037-02-17': '설날 대체 휴일',
+    '2037-03-01': '삼일절',
+    '2037-03-02': '삼일절 대체 휴일',
+    '2037-05-01': '근로자의날',
+    '2037-05-05': '어린이날',
+    '2037-05-22': '부처님오신날',
+    '2037-06-06': '현충일',
+    '2037-07-17': '제헌절',
+    '2037-08-15': '광복절',
+    '2037-08-17': '광복절 대체 휴일',
+    '2037-09-19': 'MJT 창립기념일',
+    '2037-09-23': '추석 전날',
+    '2037-09-24': '추석',
+    '2037-09-25': '추석 다음날',
+    '2037-10-03': '개천절',
+    '2037-10-05': '개천절 대체 휴일',
+    '2037-10-09': '한글날',
+    '2037-12-25': '기독탄신일',
+    # 2038
+    '2038-01-01': '신정연휴',
+    '2038-02-03': '설날 전날',
+    '2038-02-04': '설날',
+    '2038-02-05': '설날 다음날',
+    '2038-03-01': '삼일절',
+    '2038-05-01': '근로자의날',
+    '2038-05-05': '어린이날',
+    '2038-05-11': '부처님오신날',
+    '2038-06-02': '지방선거일',
+    '2038-06-06': '현충일',
+    '2038-07-17': '제헌절',
+    '2038-08-15': '광복절',
+    '2038-08-16': '광복절 대체 휴일',
+    '2038-09-12': '추석 전날',
+    '2038-09-13': '추석',
+    '2038-09-14': '추석 다음날',
+    '2038-09-15': '추석 대체 휴일',
+    '2038-09-19': 'MJT 창립기념일',
+    '2038-10-03': '개천절',
+    '2038-10-04': '개천절 대체 휴일',
+    '2038-10-09': '한글날',
+    '2038-10-11': '한글날 대체 휴일',
+    '2038-12-25': '기독탄신일',
+    '2038-12-27': '기독탄신일 대체 휴일',
+    # 2039
+    '2039-01-01': '신정연휴',
+    '2039-01-23': '설날 전날',
+    '2039-01-24': '설날',
+    '2039-01-25': '설날 다음날',
+    '2039-01-26': '설날 대체 휴일',
+    '2039-03-01': '삼일절',
+    '2039-04-30': '부처님오신날',
+    '2039-05-01': '근로자의날',
+    '2039-05-02': '부처님오신날 대체 휴일',
+    '2039-05-05': '어린이날',
+    '2039-06-06': '현충일',
+    '2039-07-17': '제헌절',
+    '2039-08-15': '광복절',
+    '2039-09-19': 'MJT 창립기념일',
+    '2039-10-01': '추석 전날',
+    '2039-10-02': '추석',
+    '2039-10-03': '개천절',
+    '2039-10-04': '추석 대체 휴일',
+    '2039-10-05': '추석 대체 휴일',
+    '2039-10-09': '한글날',
+    '2039-10-10': '한글날 대체 휴일',
+    '2039-12-25': '기독탄신일',
+    '2039-12-26': '기독탄신일 대체 휴일',
+    # 2040
+    '2040-01-01': '신정연휴',
+    '2040-02-11': '설날 전날',
+    '2040-02-12': '설날',
+    '2040-02-13': '설날 다음날',
+    '2040-02-14': '설날 대체 휴일',
+    '2040-03-01': '삼일절',
+    '2040-04-04': '대통령 선거일',
+    '2040-04-11': '국회의원 선거일',
+    '2040-05-01': '근로자의날',
+    '2040-05-05': '어린이날',
+    '2040-05-07': '어린이날 대체 휴일',
+    '2040-05-18': '부처님오신날',
+    '2040-06-06': '현충일',
+    '2040-07-17': '제헌절',
+    '2040-08-15': '광복절',
+    '2040-09-19': 'MJT 창립기념일',
+    '2040-09-20': '추석 전날',
+    '2040-09-21': '추석',
+    '2040-09-22': '추석 다음날',
+    '2040-10-03': '개천절',
+    '2040-10-09': '한글날',
+    '2040-12-25': '기독탄신일',
+    # 2041
+    '2041-01-01': '신정연휴',
+    '2041-01-31': '설날 전날',
+    '2041-02-01': '설날',
+    '2041-02-02': '설날 다음날',
+    '2041-03-01': '삼일절',
+    '2041-05-01': '근로자의날',
+    '2041-05-05': '어린이날',
+    '2041-05-06': '어린이날 대체 휴일',
+    '2041-05-07': '부처님오신날',
+    '2041-06-06': '현충일',
+    '2041-07-17': '제헌절',
+    '2041-08-15': '광복절',
+    '2041-09-09': '추석 전날',
+    '2041-09-10': '추석',
+    '2041-09-11': '추석 다음날',
+    '2041-09-19': 'MJT 창립기념일',
+    '2041-10-03': '개천절',
+    '2041-10-09': '한글날',
+    '2041-12-25': '기독탄신일',
+    # 2042
+    '2042-01-01': '신정연휴',
+    '2042-01-21': '설날 전날',
+    '2042-01-22': '설날',
+    '2042-01-23': '설날 다음날',
+    '2042-03-01': '삼일절',
+    '2042-03-03': '삼일절 대체 휴일',
+    '2042-05-01': '근로자의날',
+    '2042-05-05': '어린이날',
+    '2042-05-26': '부처님오신날',
+    '2042-06-04': '지방선거일',
+    '2042-06-06': '현충일',
+    '2042-07-17': '제헌절',
+    '2042-08-15': '광복절',
+    '2042-09-19': 'MJT 창립기념일',
+    '2042-09-27': '추석 전날',
+    '2042-09-28': '추석',
+    '2042-09-29': '추석 다음날',
+    '2042-09-30': '추석 대체 휴일',
+    '2042-10-03': '개천절',
+    '2042-10-09': '한글날',
+    '2042-12-25': '기독탄신일',
+    # 2043
+    '2043-01-01': '신정연휴',
+    '2043-02-09': '설날 전날',
+    '2043-02-10': '설날',
+    '2043-02-11': '설날 다음날',
+    '2043-03-01': '삼일절',
+    '2043-03-02': '삼일절 대체 휴일',
+    '2043-05-01': '근로자의날',
+    '2043-05-05': '어린이날',
+    '2043-05-16': '부처님오신날',
+    '2043-05-18': '부처님오신날 대체 휴일',
+    '2043-06-06': '현충일',
+    '2043-07-17': '제헌절',
+    '2043-08-15': '광복절',
+    '2043-08-17': '광복절 대체 휴일',
+    '2043-09-16': '추석 전날',
+    '2043-09-17': '추석',
+    '2043-09-18': '추석 다음날',
+    '2043-09-19': 'MJT 창립기념일',
+    '2043-10-03': '개천절',
+    '2043-10-05': '개천절 대체 휴일',
+    '2043-10-09': '한글날',
+    '2043-12-25': '기독탄신일',
+    # 2044
+    '2044-01-01': '신정연휴',
+    '2044-01-29': '설날 전날',
+    '2044-01-30': '설날',
+    '2044-01-31': '설날 다음날',
+    '2044-02-01': '설날 대체 휴일',
+    '2044-03-01': '삼일절',
+    '2044-04-13': '국회의원 선거일',
+    '2044-05-01': '근로자의날',
+    '2044-05-05': '부처님오신날',
+    '2044-05-06': '부처님오신날 대체 휴일',
+    '2044-06-06': '현충일',
+    '2044-07-17': '제헌절',
+    '2044-08-15': '광복절',
+    '2044-09-19': 'MJT 창립기념일',
+    '2044-10-03': '개천절',
+    '2044-10-04': '추석 전날',
+    '2044-10-05': '추석',
+    '2044-10-06': '추석 다음날',
+    '2044-10-09': '한글날',
+    '2044-10-10': '한글날 대체 휴일',
+    '2044-12-25': '기독탄신일',
+    '2044-12-26': '기독탄신일 대체 휴일',
+    # 2045
+    '2045-01-01': '신정연휴',
+    '2045-02-16': '설날 전날',
+    '2045-02-17': '설날',
+    '2045-02-18': '설날 다음날',
+    '2045-03-01': '삼일절',
+    '2045-04-05': '대통령 선거일',
+    '2045-05-01': '근로자의날',
+    '2045-05-05': '어린이날',
+    '2045-05-24': '부처님오신날',
+    '2045-06-06': '현충일',
+    '2045-07-17': '제헌절',
+    '2045-08-15': '광복절',
+    '2045-09-19': 'MJT 창립기념일',
+    '2045-09-24': '추석 전날',
+    '2045-09-25': '추석',
+    '2045-09-26': '추석 다음날',
+    '2045-09-27': '추석 대체 휴일',
+    '2045-10-03': '개천절',
+    '2045-10-09': '한글날',
+    '2045-12-25': '기독탄신일',
+    # 2046
+    '2046-01-01': '신정연휴',
+    '2046-02-05': '설날 전날',
+    '2046-02-06': '설날',
+    '2046-02-07': '설날 다음날',
+    '2046-03-01': '삼일절',
+    '2046-05-01': '근로자의날',
+    '2046-05-05': '어린이날',
+    '2046-05-07': '어린이날 대체 휴일',
+    '2046-05-13': '부처님오신날',
+    '2046-05-14': '부처님오신날 대체 휴일',
+    '2046-06-06': '현충일',
+    '2046-06-13': '지방선거일',
+    '2046-07-17': '제헌절',
+    '2046-08-15': '광복절',
+    '2046-09-14': '추석 전날',
+    '2046-09-15': '추석',
+    '2046-09-16': '추석 다음날',
+    '2046-09-17': '추석 대체 휴일',
+    '2046-09-19': 'MJT 창립기념일',
+    '2046-10-03': '개천절',
+    '2046-10-09': '한글날',
+    '2046-12-25': '기독탄신일',
+    # 2047
+    '2047-01-01': '신정연휴',
+    '2047-01-25': '설날 전날',
+    '2047-01-26': '설날',
+    '2047-01-27': '설날 다음날',
+    '2047-01-28': '설날 대체 휴일',
+    '2047-03-01': '삼일절',
+    '2047-05-01': '근로자의날',
+    '2047-05-02': '부처님오신날',
+    '2047-05-05': '어린이날',
+    '2047-05-06': '어린이날 대체 휴일',
+    '2047-06-06': '현충일',
+    '2047-07-17': '제헌절',
+    '2047-08-15': '광복절',
+    '2047-09-19': 'MJT 창립기념일',
+    '2047-10-03': '개천절',
+    '2047-10-04': '추석',
+    '2047-10-05': '추석 다음날',
+    '2047-10-07': '추석 대체 휴일',
+    '2047-10-09': '한글날',
+    '2047-12-25': '기독탄신일',
+    # 2048
+    '2048-01-01': '신정연휴',
+    '2048-02-13': '설날 전날',
+    '2048-02-14': '설날',
+    '2048-02-15': '설날 다음날',
+    '2048-03-01': '삼일절',
+    '2048-03-02': '삼일절 대체 휴일',
+    '2048-04-08': '국회의원 선거일',
+    '2048-05-01': '근로자의날',
+    '2048-05-05': '어린이날',
+    '2048-05-20': '부처님오신날',
+    '2048-06-06': '현충일',
+    '2048-07-17': '제헌절',
+    '2048-08-15': '광복절',
+    '2048-08-17': '광복절 대체 휴일',
+    '2048-09-19': 'MJT 창립기념일',
+    '2048-09-21': '추석 전날',
+    '2048-09-22': '추석',
+    '2048-09-23': '추석 다음날',
+    '2048-10-03': '개천절',
+    '2048-10-05': '개천절 대체 휴일',
+    '2048-10-09': '한글날',
+    '2048-12-25': '기독탄신일',
+    # 2049
+    '2049-01-01': '신정연휴',
+    '2049-02-01': '설날 전날',
+    '2049-02-02': '설날',
+    '2049-02-03': '설날 다음날',
+    '2049-03-01': '삼일절',
+    '2049-05-01': '근로자의날',
+    '2049-05-05': '어린이날',
+    '2049-05-09': '부처님오신날',
+    '2049-05-10': '부처님오신날 대체 휴일',
+    '2049-06-06': '현충일',
+    '2049-07-17': '제헌절',
+    '2049-08-15': '광복절',
+    '2049-08-16': '광복절 대체 휴일',
+    '2049-09-10': '추석 전날',
+    '2049-09-11': '추석',
+    '2049-09-12': '추석 다음날',
+    '2049-09-13': '추석 대체 휴일',
+    '2049-09-19': 'MJT 창립기념일',
+    '2049-10-03': '개천절',
+    '2049-10-04': '개천절 대체 휴일',
+    '2049-10-09': '한글날',
+    '2049-10-11': '한글날 대체 휴일',
+    '2049-12-25': '기독탄신일',
+    '2049-12-27': '기독탄신일 대체 휴일',
+    # 2050
+    '2050-01-01': '신정연휴',
+    '2050-01-22': '설날 전날',
+    '2050-01-23': '설날',
+    '2050-01-24': '설날 다음날',
+    '2050-01-25': '설날 대체 휴일',
+    '2050-03-01': '삼일절',
+    '2050-04-06': '대통령 선거일',
+    '2050-05-01': '근로자의날',
+    '2050-05-05': '어린이날',
+    '2050-05-28': '부처님오신날',
+    '2050-05-30': '부처님오신날 대체 휴일',
+    '2050-06-01': '지방선거일',
+    '2050-06-06': '현충일',
+    '2050-07-17': '제헌절',
+    '2050-08-15': '광복절',
+    '2050-09-19': 'MJT 창립기념일',
+    '2050-09-29': '추석 전날',
+    '2050-09-30': '추석',
+    '2050-10-01': '추석 다음날',
+    '2050-10-03': '개천절',
+    '2050-10-09': '한글날',
+    '2050-10-10': '한글날 대체 휴일',
+    '2050-12-25': '기독탄신일',
+    '2050-12-26': '기독탄신일 대체 휴일',
+}
 
 def get_managed_holidays():
+    """DB(holidays 테이블, 데스크탑과 공유) 우선 — 관리자가 언제든 갱신 가능, 재배포 불필요."""
     def _f():
+        if db_pg.is_available():
+            try:
+                return db_pg.get_managed_holidays()
+            except Exception:
+                pass
         try:
             sh = _open_sh()
             rows = sh.worksheet('공휴일').get_all_values()[1:]
@@ -804,7 +1683,9 @@ def get_day_label(ds: str):
     wd = d.weekday()
     if wd == 5: return '토'
     if wd == 6: return '일'
-    name = BASE_HOLIDAYS.get(ds) or get_managed_holidays().get(ds, '')
+    # DB(holidays 테이블)가 SSoT — 관리자가 갱신하면 재배포 없이 즉시 반영.
+    # BASE_HOLIDAYS는 DB 연결 불가 시(오프라인·장애)에만 쓰는 폴백.
+    name = get_managed_holidays().get(ds) or BASE_HOLIDAYS.get(ds, '')
     return name
 
 def _week_range(ref_ds=None):
@@ -882,13 +1763,36 @@ def index():
         # 응답할 설문 / 진행중 경조사 (홈 진입 배지)
         _eid = session.get('emp_id', '')
         try:
-            n_survey = sum(1 for s in (db_pg.surveys_for(_eid) if db_pg.is_available() else []) if not s.get('responded'))
+            n_survey = sum(1 for s in (db_pg.surveys_for(_eid) if db_pg.is_available() else [])
+                           if not s.get('responded') and s.get('status') == '진행중')
             n_cond = len(db_pg.condolences_for(_eid)) if db_pg.is_available() else 0
             n_notice = db_pg.unread_notice_count(_eid) if db_pg.is_available() else 0
         except Exception:
             n_survey, n_cond, n_notice = 0, 0, 0
 
+        # 대시보드 바로가기 카드용 간단 현황 — 오늘 잔업·특근 인원
+        n_ot_today = sum(1 for r in att
+                          if str(r.get('일자', '')).strip() == ds and r.get('근태유형', '') == '잔업')
+        n_sp_today = sum(1 for r in att
+                          if str(r.get('일자', '')).strip() == ds and r.get('근태유형', '') == '특근')
+
+        # 대시보드 바로가기 카드용 간단 현황 — 설비PM·개선제안
+        try:
+            n_eq_issue = db_pg.query_one(
+                "SELECT COUNT(*) c FROM eq_issues WHERE status IN ('신규','이관','점검중')")['c'] \
+                if db_pg.is_available() else 0
+        except Exception:
+            n_eq_issue = 0
+        try:
+            n_imp_year = db_pg.query_one(
+                "SELECT COUNT(*) c FROM imp_suggestions WHERE year=EXTRACT(YEAR FROM CURRENT_DATE)")['c'] \
+                if db_pg.is_available() else 0
+        except Exception:
+            n_imp_year = 0
+
         return render_template('index.html',
+            n_ot_today=n_ot_today, n_sp_today=n_sp_today,
+            n_eq_issue=n_eq_issue, n_imp_year=n_imp_year,
             n_survey=n_survey, n_cond=n_cond, n_notice=n_notice,
             month_events=month_events, today_iso=today_iso,
             today   = today.strftime('%Y년 %m월 %d일'),
@@ -1008,7 +1912,7 @@ def m_survey(sid):
         if not db_pg.is_available():
             return redirect('/surveys')
         s = db_pg.survey_one(emp_id, sid)
-        if not s or s.get('responded'):
+        if not s or s.get('responded') or s.get('status') != '진행중':
             return redirect('/surveys')
         if request.method == 'POST':
             answers = {}
@@ -1080,10 +1984,28 @@ def m_all():
     try:
         n_notice = db_pg.unread_notice_count(emp_id) if db_pg.is_available() else 0
         n_survey = sum(1 for s in (db_pg.surveys_for(emp_id) if db_pg.is_available() else [])
-                       if not s.get('responded')) if db_pg.is_available() else 0
+                       if not s.get('responded') and s.get('status') == '진행중') if db_pg.is_available() else 0
     except Exception:
         n_notice = n_survey = 0
     return render_template('m_all.html', n_notice=n_notice, n_survey=n_survey)
+
+
+@app.route('/feedback', methods=['POST'])
+def m_feedback():
+    """개선·고장 접수 — 허브 feedbacks(SSoT)에 적재. 시크릿 마스터가 취합·처리."""
+    if not db_pg.is_available():
+        return {'ok': False, 'msg': 'DB 연결 없음'}, 503
+    content = (request.form.get('content') or '').strip()
+    if not content:
+        return {'ok': False, 'msg': '내용을 입력하세요'}, 400
+    try:
+        fid = db_pg.add_feedback(
+            'siksu', '식수·근태 모바일', (request.form.get('category') or '개선제안').strip(),
+            request.form.get('title'), content, request.form.get('page'),
+            session.get('emp_id', ''), session.get('emp_name', ''), request.form.get('contact'))
+        return {'ok': True, 'id': fid}
+    except Exception as e:
+        return {'ok': False, 'msg': str(e)}, 500
 
 
 @app.route('/menu', methods=['GET', 'POST'])
