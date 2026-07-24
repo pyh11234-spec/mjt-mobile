@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% set page = 'menu_request' %}
+{% block content %}
+<div class="pg-hd">
+  <div><div class="pg-title">📝 메뉴 신청</div><div class="pg-sub">원하는 메뉴를 자유롭게 남겨주세요</div></div>
+  <a href="/all" class="btn-ref">← 전체메뉴</a>
+</div>
+<div class="px-3 pt-3">
+  <div class="c-card mb-3" style="padding:14px 16px;font-size:13px;line-height:1.6;color:var(--text2)">
+    적어주신 메뉴는 식당 관리자가 모아 업체에 전달합니다. 누구나 볼 수 있는 공개 게시판이에요.
+  </div>
+
+  <form method="post" class="c-card mb-3" style="padding:14px 16px;display:flex;gap:8px">
+    <input name="content" placeholder="예) 마라탕, 돈까스 추가해주세요" required maxlength="200"
+           style="flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--card2);font-size:14px;box-sizing:border-box">
+    <button type="submit" style="padding:11px 18px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-weight:700;white-space:nowrap">등록</button>
+  </form>
+
+  <div class="sec-lbl">신청 현황 {{ items|length }}</div>
+  <div class="c-card mb-3" style="padding:6px 16px 12px">
+    {% if items %}
+      {% for it in items %}
+      <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div>
+          <b style="font-size:13px;color:var(--text)">{{ it.emp_name or it.emp_id or '익명' }}</b>
+          <span style="margin-left:6px;font-size:11px;color:var(--text3)">{{ it.created_at.strftime('%m-%d %H:%M') if it.created_at else '' }}</span>
+          <div style="font-size:14px;margin-top:3px;white-space:pre-wrap;color:var(--text)">{{ it.content }}</div>
+        </div>
+        {% if it.status == '전달완료' %}
+        <span style="flex-shrink:0;font-size:11px;font-weight:700;color:var(--green);white-space:nowrap">✓ 전달완료</span>
+        {% else %}
+        <span style="flex-shrink:0;font-size:11px;font-weight:700;color:var(--text3);white-space:nowrap">접수</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}<div class="t2 fs13" style="padding:12px 0">아직 신청된 메뉴가 없습니다. 먼저 남겨보세요!</div>{% endif %}
+  </div>
+  <div style="height:20px"></div>
+</div>
+{% endblock %}

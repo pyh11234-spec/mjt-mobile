@@ -14,13 +14,13 @@
 </div>
 
 <div class="px-3 pt-3">
-  <!-- KPI -->
-  <div class="row g-2 mb-3">
+  <!-- KPI 전체 합계(한눈에) -->
+  <div class="row g-2 mb-2">
     {% for key, label, color in [
       ('total',  '전체 설비', '#60A5FA'),
       ('issues', '점검중',     '#EF4444'),
-      ('today',  '오늘 접수',  '#F59E0B'),
-      ('this_m', '이번달 완료', '#22C55E')
+      ('pm_overdue', 'PM 기한초과', '#EF4444'),
+      ('pm_upcoming', 'PM 이번달 예정', '#F59E0B')
     ] %}
     <div class="col-6 col-md-3">
       <div class="c-card" style="padding:12px;border-top:3px solid {{ color }}">
@@ -29,6 +29,93 @@
       </div>
     </div>
     {% endfor %}
+  </div>
+
+  <!-- 공장별(MJ/SCS/CnB) KPI 세부 — ★2026-07-21 팀장님 요청: "전체 숫자만 보는 뷰는 의미가
+       크게 없다, MJ/SCS/CnB나 공정별로 나눠 볼 수 있으면 좋겠다". 공장 단위로 먼저 쪼개고,
+       공정 단위 세부는 바로 아래 "이번 달 공정별 이슈"가 담당(두 뷰를 조합해서 본다). -->
+  {% if kpi_by_factory %}
+  <div class="row g-2 mb-3">
+    {% for f in kpi_by_factory %}
+    <div class="col-12 col-md-4">
+      <div class="c-card" style="padding:12px 14px">
+        <div style="font-weight:800;font-size:13.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+          🏭 {{ f.factory }}
+          {% if f.issues %}<span style="font-size:10px;color:#fff;background:#EF4444;border-radius:10px;padding:1px 7px">점검중 {{ f.issues }}</span>{% endif %}
+          {% if f.pm_overdue %}<span style="font-size:10px;color:#fff;background:#B91C1C;border-radius:10px;padding:1px 7px">PM초과 {{ f.pm_overdue }}</span>{% endif %}
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11.5px">
+          <div><span style="color:var(--text2)">설비</span> <b>{{ f.total }}</b></div>
+          <div><span style="color:var(--text2)">점검중</span> <b style="color:#EF4444">{{ f.issues }}</b></div>
+          <div><span style="color:var(--text2)">오늘접수</span> <b>{{ f.today }}</b></div>
+          <div><span style="color:var(--text2)">이번달완료</span> <b style="color:#22C55E">{{ f.this_m }}</b></div>
+          <div><span style="color:var(--text2)">PM초과</span> <b style="color:#EF4444">{{ f.pm_overdue }}</b></div>
+          <div><span style="color:var(--text2)">PM예정</span> <b style="color:#F59E0B">{{ f.pm_upcoming }}</b></div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if pm_msg %}
+  <div class="c-card mb-3" style="padding:10px 14px;border-left:4px solid {{ '#22C55E' if pm_ok=='1' else '#EF4444' }};font-size:13px;font-weight:700">
+    {{ '✅' if pm_ok=='1' else '⚠️' }} {{ pm_msg }}
+  </div>
+  {% endif %}
+
+  <!-- 현재 이슈(비정기) — ★2026-07-21 팀장님 요청: 정기점검(예정된 일)보다 지금 문제가 되고
+       있는 이슈가 먼저 눈에 띄어야 하므로 최상단으로. 건별 진행상황(단계 스테퍼 + 이력)도 함께
+       보여줘 "너무 단순하다"는 지적을 반영(desktop IssueDetailDialog의 이력을 그대로 가져옴). -->
+  <div class="sec-lbl">🚨 현재 이슈  ({{ issues|length }}건)</div>
+  <div class="c-card mb-3">
+    {% if not issues %}
+      <div class="empty">진행중 이슈 없음 ✨</div>
+    {% else %}
+      <div class="scroll-list">
+      {% for i in issues %}
+        {% set sc = {'신규':'#EF4444','이관':'#F59E0B','점검중':'#3B82F6'}.get(i.status,'#94A3B8') %}
+        <div class="c-row" style="align-items:flex-start;flex-direction:column;gap:6px;padding:10px 12px">
+          <div style="display:flex;width:100%;align-items:center;gap:8px">
+            <span class="dot" style="background:{{ sc }}"></span>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700">{{ i.eq_id }}  <span style="color:var(--text2);font-weight:400;font-size:11px">{{ i.process_id }}</span></div>
+              <div style="font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ i.detail or i.major_type }}</div>
+            </div>
+            <span style="font-size:10px;color:{{ sc }};font-weight:700;white-space:nowrap">{{ i.status }}</span>
+          </div>
+          <!-- 진행 단계 스테퍼 -->
+          <div style="display:flex;gap:4px;width:100%">
+            {% for st in ['신규','이관','점검중','완료'] %}
+            <div style="flex:1;text-align:center;font-size:9.5px;font-weight:700;padding:3px 2px;border-radius:5px;
+                        background:{{ (sc if st==i.status else 'var(--bg2)') }};color:{{ '#fff' if st==i.status else 'var(--text2)' }}">{{ st }}</div>
+            {% endfor %}
+          </div>
+          <!-- 접수자/담당자·예상완료 — ★2026-07-21 팀장님 요청: 요청자가 무작정 기다리지
+               않도록 문의 창구(담당자)와 예상완료 시각을 카드에서 바로 보여준다. -->
+          <div style="display:flex;flex-wrap:wrap;gap:10px;width:100%;font-size:11px;color:var(--text2)">
+            <span>👤 접수: <b style="color:var(--text)">{{ i.reporter_name or '-' }}</b></span>
+            {% if i.owner_name %}<span>🔧 담당: <b style="color:var(--text)">{{ i.owner_name }}</b></span>{% endif %}
+            {% if i.eta_label %}
+            <span style="{{ 'color:#EF4444;font-weight:700' if '초과' in i.eta_label else 'color:var(--gold);font-weight:700' }}">{{ i.eta_label }}</span>
+            {% endif %}
+          </div>
+          {% if i.history %}
+          <details style="width:100%">
+            <summary style="font-size:11.5px;color:var(--gold);cursor:pointer;font-weight:700">📋 진행 이력 {{ i.history|length }}건 보기</summary>
+            <div style="margin-top:6px;padding:8px 10px;background:var(--bg2);border-radius:6px;font-size:11.5px;line-height:1.7">
+              {% for h in i.history %}
+              <div>{{ h.icon }} <span style="color:var(--text2)">[{{ h.at }}]</span> <b>{{ h.stage }}</b> — {{ h.by }}{% if h.memo %} :: {{ h.memo }}{% endif %}</div>
+              {% endfor %}
+            </div>
+          </details>
+          {% else %}
+          <div style="font-size:11px;color:var(--text2)">아직 점검 시작 전 — 진행 이력 없음</div>
+          {% endif %}
+        </div>
+      {% endfor %}
+      </div>
+    {% endif %}
   </div>
 
   <!-- 공정별 (이번달) -->
@@ -48,25 +135,49 @@
   </div>
   {% endif %}
 
-  <!-- 점검중 이슈 -->
-  <div class="sec-lbl">점검중 이슈  ({{ issues|length }}건)</div>
+  <!-- 정기점검(PM) 예정 — ★2026-07-21: 급한 현재 이슈보다 아래로. 완료 처리(담당자+점검결과
+       입력)해야 목록에서 빠지고, 주기가 되면 다음 점검일이 자동으로 다시 잡힌다.
+       이력은 eq_maint_log에 계속 누적. 공정별로 접었다 펼 수 있게 그룹핑(2026-07-20). -->
+  <div class="sec-lbl">🛠 정기점검(PM) — 기한초과 {{ pm.overdue|length }}건 · 이번달 예정 {{ pm.upcoming|length }}건</div>
   <div class="c-card mb-3">
-    {% if not issues %}
-      <div class="empty">점검중 이슈 없음 ✨</div>
+    {% if not pm.groups %}
+      <div class="empty">기한초과·예정 정기점검 없음 ✨</div>
     {% else %}
-      <div class="scroll-list">
-      {% for i in issues %}
-        {% set sc = {'신규':'#EF4444','이관':'#F59E0B','점검중':'#3B82F6'}.get(i.status,'#94A3B8') %}
-        <div class="c-row">
-          <span class="dot" style="background:{{ sc }}"></span>
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700">{{ i.eq_id }}  <span style="color:var(--text2);font-weight:400;font-size:11px">{{ i.process_id }}</span></div>
-            <div style="font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ i.detail or i.major_type }}</div>
+      {% for g in pm.groups %}
+      <details style="margin-bottom:8px">
+        <summary style="cursor:pointer;font-weight:700;font-size:13px;padding:8px 4px;display:flex;align-items:center;gap:6px">
+          <span>{{ g.process }}</span>
+          {% if g.overdue_n %}<span style="font-size:10px;color:#fff;background:#EF4444;border-radius:10px;padding:1px 8px">초과 {{ g.overdue_n }}</span>{% endif %}
+          {% if g.upcoming_n %}<span style="font-size:10px;color:#1A1A1A;background:#F59E0B;border-radius:10px;padding:1px 8px">예정 {{ g.upcoming_n }}</span>{% endif %}
+        </summary>
+        <div class="scroll-list">
+        {% for p in g.entries %}
+          <div class="c-row" style="align-items:flex-start;flex-direction:column;gap:6px;padding:10px 12px">
+            <div style="display:flex;width:100%;align-items:center;gap:8px">
+              <span class="dot" style="background:{{ '#EF4444' if p.days_over else '#F59E0B' }}"></span>
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:700">{{ p.eq_name }} <span style="color:var(--text2);font-weight:400;font-size:11px">{{ p.item }}</span></div>
+                <div style="font-size:11px;color:var(--text2)">{{ p.cycle }} · 담당 {{ p.in_charge_dept }}{% if p.in_charge_emp %}/{{ p.in_charge_emp }}{% endif %}</div>
+              </div>
+              {% if p.days_over %}
+              <span style="font-size:10px;color:#EF4444;font-weight:700;white-space:nowrap">{{ p.days_over }}일 초과</span>
+              {% else %}
+              <span style="font-size:10px;color:#F59E0B;font-weight:700;white-space:nowrap">{{ p.next_due_date }}</span>
+              {% endif %}
+            </div>
+            <details style="width:100%">
+              <summary style="font-size:12px;color:var(--gold);cursor:pointer;font-weight:700">✔ 완료 처리</summary>
+              <form method="post" action="/equipment/pm/{{ p.id }}/complete" style="margin-top:6px;display:flex;gap:6px">
+                <input type="text" name="note" required placeholder="점검 결과를 입력하세요(필수)"
+                       style="flex:1;min-width:0;padding:8px 10px;border-radius:6px;border:1px solid var(--line,#ddd);font-size:13px">
+                <button type="submit" style="padding:8px 14px;border:0;border-radius:6px;background:var(--gold);color:#1A1A1A;font-weight:700;font-size:12.5px;white-space:nowrap">완료</button>
+              </form>
+            </details>
           </div>
-          <span style="font-size:10px;color:{{ sc }};font-weight:700">{{ i.status }}</span>
+        {% endfor %}
         </div>
+      </details>
       {% endfor %}
-      </div>
     {% endif %}
   </div>
 

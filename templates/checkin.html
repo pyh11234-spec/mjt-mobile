@@ -43,34 +43,39 @@
   {% if wkend_plan %}
   <div class="c-card mb-3" style="padding:18px">
     <div style="font-size:15px;font-weight:700;color:#C084FC;margin-bottom:4px">🔧 토·일 특근 식사 신청</div>
-    <div style="font-size:12px;color:#94A3B8;margin-bottom:14px">특근 예정일의 식사를 미리 신청하세요.</div>
+    <div style="font-size:12px;color:#94A3B8;margin-bottom:14px">특근 예정일의 식사를 미리 신청하세요. 오전·오후 근무가 다르면 각각 따로 신청할 수 있습니다.</div>
 
     {% for w in wkend_plan %}
-    <div class="wk-item">
-      <div class="wk-hd">
-        <span class="wk-date">{{ w.date[5:] }} ({{ w.weekday }})</span>
-        {% if w.mode == '중국집' %}
-        <span class="wk-tag" style="background:#2D1B4E;color:#C084FC">중국집</span>
-        {% else %}
-        <span class="wk-tag" style="background:#1E3A5F;color:#60A5FA">구내식당</span>
+      {% for slot_name, slot_mode in [('오전', w.am_mode), ('오후', w.pm_mode)] %}
+      {% if slot_mode and slot_mode != '없음' %}
+      <div class="wk-item">
+        <div class="wk-hd">
+          <span class="wk-date">{{ w.date[5:] }} ({{ w.weekday }}) · {{ slot_name }}</span>
+          {% if slot_mode == '중국집' %}
+          <span class="wk-tag" style="background:#2D1B4E;color:#C084FC">중국집</span>
+          {% else %}
+          <span class="wk-tag" style="background:#1E3A5F;color:#60A5FA">구내식당</span>
+          {% endif %}
+          <span class="wk-sup">지원 {{ "{:,}".format(w.support) }}원</span>
+        </div>
+        {% if w.notice %}<div class="wk-notice">{{ w.notice }}</div>{% endif %}
+        {% if slot_mode == '중국집' %}
+        <select class="wk-menu" data-date="{{ w.date }}" data-slot="{{ slot_name }}">
+          <option value="">메뉴 선택…</option>
+          {% for m in chinese_menus %}
+          <option value="{{ m.name }}">{{ m.name }} ({{ "{:,}".format(m.price) }}원{% if m.price > w.support %} · 개인추가 {{ "{:,}".format(m.price - w.support) }}원{% endif %})</option>
+          {% endfor %}
+        </select>
         {% endif %}
-        <span class="wk-sup">지원 {{ "{:,}".format(w.support) }}원</span>
+        <button class="meal-btn wknd" onclick="applyWk('{{ w.date }}', '{{ slot_name }}', '{{ slot_mode }}', this)">
+          <span class="ic">🔧</span>
+          <span class="tx"><b>{{ w.date[5:] }} {{ slot_name }} 특근 식사 신청</b><small>{{ slot_mode }}{% if slot_mode == '중국집' %} · 메뉴 선택 필요{% endif %}</small></span>
+          <span class="ar">›</span>
+        </button>
+        <button class="cancel-link" onclick="applyWkNoMeal('{{ w.date }}', '{{ slot_name }}', this)">✕ 이 시간대 식사 안 함으로 등록</button>
       </div>
-      {% if w.notice %}<div class="wk-notice">{{ w.notice }}</div>{% endif %}
-      {% if w.mode == '중국집' %}
-      <select class="wk-menu" data-date="{{ w.date }}">
-        <option value="">메뉴 선택…</option>
-        {% for m in chinese_menus %}
-        <option value="{{ m.name }}">{{ m.name }} ({{ "{:,}".format(m.price) }}원{% if m.price > w.support %} · 개인추가 {{ "{:,}".format(m.price - w.support) }}원{% endif %})</option>
-        {% endfor %}
-      </select>
       {% endif %}
-      <button class="meal-btn wknd" onclick="applyWk('{{ w.date }}', '{{ w.mode }}', this)">
-        <span class="ic">🔧</span>
-        <span class="tx"><b>{{ w.date[5:] }} 특근 식사 신청</b><small>{{ w.mode }}{% if w.mode == '중국집' %} · 메뉴 선택 필요{% endif %}</small></span>
-        <span class="ar">›</span>
-      </button>
-    </div>
+      {% endfor %}
     {% endfor %}
   </div>
   {% endif %}
@@ -160,10 +165,10 @@ async function cancelMeal(action, btn){
   }catch(e){ toast('⚠ 네트워크 오류', 'err'); }
   setTimeout(()=>{ btn.disabled = false; }, 1500);
 }
-async function applyWk(d, mode, btn){
+async function applyWk(d, slotName, mode, btn){
   let menu = '';
   if(mode === '중국집'){
-    const sel = document.querySelector('.wk-menu[data-date="'+d+'"]');
+    const sel = document.querySelector('.wk-menu[data-date="'+d+'"][data-slot="'+slotName+'"]');
     menu = sel ? sel.value : '';
     if(!menu){ toast('⚠ 중국집 메뉴를 선택하세요', 'err'); return; }
   }
@@ -172,13 +177,33 @@ async function applyWk(d, mode, btn){
     const res = await fetch('/api/wkend_request', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ date:d, menu })   // emp_id는 서버가 세션에서 가져감
+      body: JSON.stringify({ date:d, slot:slotName, menu })   // emp_id는 서버가 세션에서 가져감
     });
     const r = await res.json();
     if(r.ok){
       const extra = (r.per_pay && r.per_pay > 0)
         ? ' (개인추가 ' + r.per_pay.toLocaleString() + '원)' : '';
-      toast('✅ ' + (r.name || '') + ' – ' + d.slice(5) + ' 특근식사 신청 완료' + extra, 'ok');
+      toast('✅ ' + (r.name || '') + ' – ' + d.slice(5) + ' ' + slotName + ' 특근식사 신청 완료' + extra, 'ok');
+    }else{
+      toast('⚠ ' + (r.error || '오류가 발생했습니다'), 'err');
+    }
+  }catch(e){
+    toast('⚠ 네트워크 오류', 'err');
+  }
+  setTimeout(()=>{ btn.disabled = false; }, 1500);
+}
+async function applyWkNoMeal(d, slotName, btn){
+  if(!confirm(d.slice(5) + ' ' + slotName + ' 식사를 "안 함"으로 등록할까요?')) return;
+  btn.disabled = true;
+  try{
+    const res = await fetch('/api/wkend_request', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ date:d, slot:slotName, no_meal:true })
+    });
+    const r = await res.json();
+    if(r.ok){
+      toast('✅ ' + d.slice(5) + ' ' + slotName + ' 식사 안 함으로 등록됐습니다.', 'ok');
     }else{
       toast('⚠ ' + (r.error || '오류가 발생했습니다'), 'err');
     }

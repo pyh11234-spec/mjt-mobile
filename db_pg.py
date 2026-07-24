@@ -149,6 +149,127 @@ def meal_today(ds: str) -> dict:
     return out
 
 
+def meal_expected(ds: str) -> dict:
+    """특정일 예정 인원(신청 기준, 식당 준비용) — 중식신청·저녁도시락·특근식사·외부손님."""
+    lunch = query_one("SELECT COUNT(*) c FROM lunch_requests WHERE req_date=%s", (ds,))
+    dinner = query_one("SELECT COUNT(*) c FROM dinner_requests WHERE req_date=%s", (ds,))
+    weekend = query_one("SELECT COALESCE(SUM(headcount),0) c FROM weekend_meals WHERE meal_date=%s", (ds,))
+    guest = query_one("SELECT COALESCE(SUM(person_count),0) c FROM guests WHERE visit_date=%s", (ds,))
+    lunch_c = (lunch or {}).get('c') or 0
+    dinner_c = (dinner or {}).get('c') or 0
+    weekend_c = (weekend or {}).get('c') or 0
+    guest_c = (guest or {}).get('c') or 0
+    return {'lunch': lunch_c, 'dinner': dinner_c, 'weekend': weekend_c, 'guest': guest_c,
+            'total': lunch_c + dinner_c + weekend_c + guest_c}
+
+
+def meal_range_summary(d_from: str, d_to: str) -> dict:
+    """기간 내 일자별 식수 집계(실식수 기준) — 데스크탑 get_settlement_data()와 동일 카테고리
+    (도시락 남/여, 특근 구내/도시락/배달 3분류)로 통일. 특근 co_pay/per_pay는 참고용이며
+    데스크탑과 동일하게 정산 금액(total_amount)엔 포함하지 않는다(중식+도시락만 단가 적용)."""
+    days = {}
+
+    def _row(ds):
+        return days.setdefault(ds, {'date': ds, 'lunch': 0, 'dinner_male': 0, 'dinner_female': 0,
+                                     'wkg': 0, 'wkb': 0, 'wkd': 0, 'weekend_copay': 0,
+                                     'weekend_perpay': 0, 'guest': 0})
+
+    for r in query("SELECT actual_date, COUNT(*) c FROM lunch_actuals "
+                   "WHERE type='중식' AND actual_date BETWEEN %s AND %s "
+                   "GROUP BY actual_date", (d_from, d_to)):
+        _row(_ymd(r['actual_date']))['lunch'] = r['c']
+    for r in query("SELECT req_date, gender, COUNT(*) c FROM dinner_requests "
+                   "WHERE req_date BETWEEN %s AND %s GROUP BY req_date, gender", (d_from, d_to)):
+        d = _row(_ymd(r['req_date']))
+        if (r['gender'] or '').strip() == '여':
+            d['dinner_female'] += r['c']
+        else:
+            d['dinner_male'] += r['c']
+    for r in query("SELECT meal_date, mode, COUNT(*) cnt, COALESCE(SUM(co_pay),0) cp, "
+                   "COALESCE(SUM(per_pay),0) pp FROM weekend_meals "
+                   "WHERE meal_date BETWEEN %s AND %s GROUP BY meal_date, mode", (d_from, d_to)):
+        d = _row(_ymd(r['meal_date']))
+        mode = (r['mode'] or '').strip()
+        if mode == '구내식당':
+            d['wkg'] += r['cnt']
+        elif mode == '도시락':
+            d['wkb'] += r['cnt']
+        elif mode == '배달':
+            d['wkd'] += r['cnt']
+        d['weekend_copay'] += r['cp']; d['weekend_perpay'] += r['pp']
+    for r in query("SELECT visit_date, COALESCE(SUM(person_count),0) c FROM guests "
+                   "WHERE visit_date BETWEEN %s AND %s GROUP BY visit_date", (d_from, d_to)):
+        _row(_ymd(r['visit_date']))['guest'] = r['c']
+
+    rows = [days[k] for k in sorted(days.keys())]
+    keys = ('lunch', 'dinner_male', 'dinner_female', 'wkg', 'wkb', 'wkd',
+            'weekend_copay', 'weekend_perpay', 'guest')
+    totals = {k: sum(r[k] for r in rows) for k in keys}
+    return {'rows': rows, 'totals': totals}
+
+
+def save_settlement(d_from, d_to, lunch_count, guest_count, lunch_price,
+                     dinner_male_count, dinner_female_count, dinner_price,
+                     wkg_count, wkb_count, wkd_count, weekend_copay, weekend_perpay,
+                     created_by, biz_scope='전체') -> int:
+    """정산 확정 저장 — (중식+외부손님)×중식단가 + 도시락×도시락단가 = 총액(데스크탑과 동일 규칙,
+    특근 co_pay는 참고용으로만 저장·정산 총액엔 미포함). 결제여부는 미결제(False)로 시작."""
+    total = ((lunch_count + guest_count) * lunch_price +
+             (dinner_male_count + dinner_female_count) * dinner_price)
+    with cursor() as cur:
+        cur.execute(
+            "INSERT INTO meal_settlements (d_from, d_to, lunch_count, guest_count, lunch_price, "
+            "dinner_male_count, dinner_female_count, dinner_price, wkg_count, wkb_count, wkd_count, "
+            "weekend_copay, weekend_perpay, biz_scope, total_amount, created_by) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (d_from, d_to, lunch_count, guest_count, lunch_price, dinner_male_count, dinner_female_count,
+             dinner_price, wkg_count, wkb_count, wkd_count, weekend_copay, weekend_perpay, biz_scope,
+             total, created_by))
+        return cur.fetchone()['id']
+
+
+def list_settlements(limit: int = 30) -> list:
+    rows = query(
+        "SELECT id, d_from, d_to, lunch_count, guest_count, lunch_price, dinner_male_count, "
+        "dinner_female_count, dinner_price, wkg_count, wkb_count, wkd_count, weekend_copay, "
+        "weekend_perpay, biz_scope, total_amount, paid, paid_at, paid_by, created_by, created_at, memo "
+        "FROM meal_settlements ORDER BY d_from DESC, id DESC LIMIT %s", (limit,))
+    out = []
+    for r in rows:
+        out.append({**r, 'd_from': _ymd(r['d_from']), 'd_to': _ymd(r['d_to']),
+                    'paid_at': _ymd(r['paid_at']) if r['paid_at'] else '',
+                    'created_at': _ymd(r['created_at']) if r['created_at'] else ''})
+    return out
+
+
+def toggle_settlement_paid(sid: int, paid: bool, by: str) -> None:
+    if paid:
+        execute("UPDATE meal_settlements SET paid=TRUE, paid_at=NOW(), paid_by=%s WHERE id=%s", (by, sid))
+    else:
+        execute("UPDATE meal_settlements SET paid=FALSE, paid_at=NULL, paid_by=NULL WHERE id=%s", (sid,))
+
+
+def recent_export_logs(limit: int = 20) -> list:
+    """식수 집계·정산 다운로드 로그(누가·언제·무엇을) — access_logs 재사용."""
+    rows = query(
+        "SELECT emp_id, path, accessed_at FROM access_logs "
+        "WHERE path LIKE '/manage/stats%%' AND success=TRUE "
+        "ORDER BY accessed_at DESC LIMIT %s", (limit,))
+    emap = {}
+    if rows:
+        ids = tuple({r['emp_id'] for r in rows if r['emp_id']}) or ('',)
+        for e in query("SELECT emp_id, name FROM employees WHERE emp_id = ANY(%s)", (list(ids),)):
+            emap[e['emp_id']] = e['name']
+    label = {'/manage/stats/export.xlsx': '엑셀(정산용)', '/manage/stats/export.png': '이미지(정산용)',
+             '/manage/stats/expected.png': '식당 공유용 이미지'}
+    out = []
+    for r in rows:
+        out.append({'emp_id': r['emp_id'], 'name': emap.get(r['emp_id'], r['emp_id']),
+                     'kind': label.get(r['path'], r['path']),
+                     'at': _to_kst(r['accessed_at']).strftime('%Y-%m-%d %H:%M') if r['accessed_at'] else ''})
+    return out
+
+
 def op_settings() -> dict:
     return {r['key']: r['value'] for r in query("SELECT key,value FROM op_settings")}
 
@@ -299,13 +420,17 @@ def cancel_dinner(ds: str, emp_id: str) -> int:
     return execute("DELETE FROM dinner_requests WHERE req_date=%s AND emp_id=%s", (ds, emp_id))
 
 
-def has_weekend(ds: str, emp_id: str) -> bool:
+def has_weekend(ds: str, emp_id: str, slot: str = None) -> bool:
+    """slot 지정 시 그 슬롯(오전/오후)만 확인 — 같은 날 오전·오후 둘 다 신청 가능하게 하기 위함."""
+    if slot:
+        return query_one("SELECT 1 FROM weekend_meals WHERE meal_date=%s AND emp_id=%s AND slot=%s LIMIT 1",
+                         (ds, emp_id, slot)) is not None
     return query_one("SELECT 1 FROM weekend_meals WHERE meal_date=%s AND emp_id=%s LIMIT 1", (ds, emp_id)) is not None
 
 
 def add_weekend(ds, emp_id, name, dept, rank, mode, menu, price=0, co_pay=0, per_pay=0,
                 headcount=1, no_meal=False, slot='', vendor='', memo='웹신청') -> bool:
-    if has_weekend(ds, emp_id):
+    if has_weekend(ds, emp_id, slot or None):
         return False
     execute("INSERT INTO weekend_meals (meal_date,emp_id,emp_name,dept,rank,mode,menu,price,"
             "co_pay,per_pay,headcount,no_meal,slot,vendor,memo) "
@@ -429,6 +554,43 @@ def dining_force_claim(guid, host):
 def dining_release():
     _dining_ensure()
     execute("UPDATE dining_terminal SET device_guid=NULL, hostname=NULL WHERE id=1")
+
+
+# ── 메뉴 신청함(meal_menu_requests) — 3공장 식당 메모장(종이) 디지털화, 2026-07-24 ──
+# 직원이 원하는 메뉴를 자유롭게 적으면 식당 관리자(MENU_PW 인증)가 모아서 업체에 전달.
+def _menu_req_ensure():
+    execute("""CREATE TABLE IF NOT EXISTS meal_menu_requests (
+        id SERIAL PRIMARY KEY,
+        emp_id TEXT, emp_name TEXT,
+        content TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT '접수',
+        created_at TIMESTAMP DEFAULT now(),
+        done_at TIMESTAMP)""")
+
+def add_menu_request(emp_id: str, emp_name: str, content: str) -> bool:
+    content = (content or '').strip()
+    if not content:
+        return False
+    _menu_req_ensure()
+    execute("INSERT INTO meal_menu_requests (emp_id, emp_name, content, created_at) "
+            "VALUES (%s,%s,%s, now())", (emp_id, emp_name, content))
+    return True
+
+def list_menu_requests(status: str = None, limit: int = 200) -> list:
+    _menu_req_ensure()
+    if status:
+        return query("SELECT id, emp_id, emp_name, content, status, created_at, done_at "
+                     "FROM meal_menu_requests WHERE status=%s ORDER BY created_at DESC LIMIT %s",
+                     (status, limit))
+    return query("SELECT id, emp_id, emp_name, content, status, created_at, done_at "
+                 "FROM meal_menu_requests ORDER BY created_at DESC LIMIT %s", (limit,))
+
+def set_menu_request_status(rid: int, status: str) -> None:
+    _menu_req_ensure()
+    if status == '전달완료':
+        execute("UPDATE meal_menu_requests SET status=%s, done_at=now() WHERE id=%s", (status, rid))
+    else:
+        execute("UPDATE meal_menu_requests SET status=%s, done_at=NULL WHERE id=%s", (status, rid))
 
 
 # ── 얼굴 임베딩(face_embeddings, 단일행 id=1) — 데스크탑 face_sync의 서버측 대응 ──
@@ -667,6 +829,199 @@ def delete_company_event(ds, content):
     with cursor() as cur:
         cur.execute("DELETE FROM company_events WHERE event_date=%s AND content=%s", (ds, content))
     return True
+
+
+# ── 설비 정기점검(PM) 스케줄 — 통합관리시스템 허브(eq_maint_schedule/eq_maint_log)가 SSoT.
+# 같은 mjt DB를 쓰므로 API 없이 같은 테이블을 직접 읽고/완료처리 쓴다(허브 app.py의
+# equipment_maintenance()/equipment_maintenance_complete()와 동일 로직 대칭 유지 — #36).
+# 비정기 이슈(eq_issues)는 이미 위에서 다루고 있고, 이건 "주기가 되면 반복되는" 정기 PM 전용.
+_PM_UNIT_LABEL = {'day': '일', 'week': '주', 'month': '개월', 'year': '년'}
+
+
+def _pm_add_interval(base, unit, value):
+    """기준일 + (주기단위·값) → 다음 점검일. 허브 app.py `_add_interval`과 완전히 동일한 계산식
+    (월/년은 말일 초과분을 그 달 말일로 보정) — 어느 쪽에서 완료 처리하든 결과가 같아야 한다."""
+    import calendar as _cal
+    if unit == 'week':
+        return base + _timedelta(weeks=value)
+    if unit == 'month':
+        m0 = base.month - 1 + value
+        y = base.year + m0 // 12
+        m = m0 % 12 + 1
+        d = min(base.day, _cal.monthrange(y, m)[1])
+        return _date(y, m, d)
+    if unit == 'year':
+        y = base.year + value
+        try:
+            return base.replace(year=y)
+        except ValueError:
+            return _date(y, 2, 28)
+    return base + _timedelta(days=value)  # day 및 알수없는 값 폴백
+
+
+def eqmaint_dashboard(days_ahead: int = 31) -> dict:
+    """기한초과 / 향후 days_ahead일 이내 예정 / 다음점검일 미설정 — 정기점검 목록 3분류 +
+    공정별 그룹(현장에서 자기 공정만 훑어볼 수 있도록, 2026-07-20 팀장님 피드백 — 목록이
+    너무 많으니 공정·설비 단위로 나눠서 보이게)."""
+    rows = query("""
+        SELECT s.id, s.eq_id, m.eq_name, m.process_id, s.item, s.interval_unit, s.interval_value,
+               s.last_done_date, s.next_due_date, s.in_charge_dept, s.in_charge_emp, s.note
+        FROM eq_maint_schedule s LEFT JOIN eq_machines m ON m.eq_id = s.eq_id
+        WHERE s.active = TRUE
+        ORDER BY m.process_id NULLS LAST, s.eq_id, s.next_due_date NULLS LAST
+    """)
+    today = _date.today()
+    horizon = today + _timedelta(days=days_ahead)
+    overdue, upcoming, no_due = [], [], []
+    by_process = {}
+    for r in rows:
+        d = r.get('next_due_date')
+        item = {
+            'id': r['id'], 'eq_id': r['eq_id'], 'eq_name': r.get('eq_name') or r['eq_id'],
+            'process': r.get('process_id') or '미분류',
+            'item': r['item'],
+            'cycle': '%s%s마다' % (r['interval_value'], _PM_UNIT_LABEL.get(r['interval_unit'], r['interval_unit'])),
+            'last_done_date': _ymd(r['last_done_date']) if r.get('last_done_date') else '',
+            'next_due_date': _ymd(d) if d else '',
+            'in_charge_dept': r.get('in_charge_dept') or '', 'in_charge_emp': r.get('in_charge_emp') or '',
+            'note': r.get('note') or '',
+        }
+        if not d:
+            no_due.append(item)
+            continue
+        elif d < today:
+            item['days_over'] = (today - d).days
+            overdue.append(item)
+        elif d <= horizon:
+            upcoming.append(item)
+        else:
+            continue
+        by_process.setdefault(item['process'], []).append(item)
+
+    groups = []
+    for proc in sorted(by_process.keys()):
+        items = by_process[proc]
+        items.sort(key=lambda x: (0 if x.get('days_over') else 1, x.get('next_due_date') or ''))
+        groups.append({
+            # ★키 이름 'items' 절대 금지 — Jinja가 dict.items() 내장 메서드로 오인식해
+            # `{% for p in g.items %}`가 TypeError로 500 에러남(허브에서 같은 사고 이미 겪음).
+            'process': proc, 'entries': items,
+            'overdue_n': sum(1 for i in items if i.get('days_over')),
+            'upcoming_n': sum(1 for i in items if not i.get('days_over')),
+        })
+    return {'overdue': overdue, 'upcoming': upcoming, 'no_due': no_due, 'groups': groups,
+            'total': len(overdue) + len(upcoming) + len(no_due)}
+
+
+def eqmaint_complete(sched_id: int, done_by: str, note: str) -> bool:
+    """정기점검 완료 처리 — 담당자·날짜·점검결과를 이력(eq_maint_log)에 남기고, 다음 점검일을
+    주기만큼 자동으로 밀어 다시 대기 상태로 되돌린다(허브에서 완료 처리한 것과 동일 효과)."""
+    r = query_one("SELECT interval_unit, interval_value FROM eq_maint_schedule WHERE id=%s AND active=TRUE",
+                  (sched_id,))
+    if not r:
+        return False
+    today = _date.today()
+    next_due = _pm_add_interval(today, r['interval_unit'], r['interval_value'] or 1)
+    with cursor() as cur:
+        cur.execute("UPDATE eq_maint_schedule SET last_done_date=%s, next_due_date=%s, updated_at=NOW() "
+                    "WHERE id=%s", (today, next_due, sched_id))
+        cur.execute("INSERT INTO eq_maint_log (sched_id, done_date, done_by, note, created_at) "
+                    "VALUES (%s,%s,%s,%s, NOW())", (sched_id, today, (done_by or '').strip()[:120],
+                                                      (note or '').strip()[:2000]))
+    return True
+
+
+def eqmaint_log_for(sched_id: int, limit: int = 5) -> list:
+    """이 정기점검의 완료 이력(최신순) — 완료 처리해도 사라지지 않고 남는 기록."""
+    rows = query("SELECT done_date, done_by, note FROM eq_maint_log "
+                 "WHERE sched_id=%s ORDER BY done_date DESC, id DESC LIMIT %s", (sched_id, limit))
+    return [{'date': _ymd(r['done_date']), 'by': r.get('done_by') or '', 'note': r.get('note') or ''}
+            for r in rows]
+
+
+FACTORY_ORDER = ['MJ 1공장', 'SCS 2공장', 'CnB-P']
+
+
+def eq_kpi_by_factory() -> list:
+    """설비 KPI를 공장(MJ/SCS/CnB)별로 쪼개서 반환 — 2026-07-21 팀장님 요청:
+    "전체설비/점검중/오늘접수 같은 대시보드가 그냥 숫자만 있어서 의미가 크게 없다.
+    MJ/SCS/CnB나 공정별로 나눠 볼 수 있으면 좋겠다." 공장별 소계를 먼저 제공(공정별 세부는
+    이미 있는 '이번 달 공정별 이슈' 막대그래프가 별도로 담당)."""
+    def _by_factory(sql, params=()):
+        return {r['factory']: r['c'] for r in query(sql, params)}
+
+    total = _by_factory("SELECT factory, COUNT(*) c FROM eq_machines WHERE active=TRUE GROUP BY factory")
+    issues = _by_factory(
+        "SELECT m.factory, COUNT(*) c FROM eq_issues i JOIN eq_machines m ON m.eq_id=i.eq_id "
+        "WHERE i.status IN ('신규','이관','점검중') GROUP BY m.factory")
+    today = _by_factory(
+        "SELECT m.factory, COUNT(*) c FROM eq_issues i JOIN eq_machines m ON m.eq_id=i.eq_id "
+        "WHERE DATE(i.occurred_at)=CURRENT_DATE GROUP BY m.factory")
+    this_m = _by_factory(
+        "SELECT m.factory, COUNT(*) c FROM eq_issues i JOIN eq_machines m ON m.eq_id=i.eq_id "
+        "WHERE i.status='완료' AND DATE_TRUNC('month',i.closed_at)=DATE_TRUNC('month',CURRENT_DATE) "
+        "GROUP BY m.factory")
+    pm_overdue = _by_factory(
+        "SELECT m.factory, COUNT(*) c FROM eq_maint_schedule s JOIN eq_machines m ON m.eq_id=s.eq_id "
+        "WHERE s.active=TRUE AND s.next_due_date < CURRENT_DATE GROUP BY m.factory")
+    pm_upcoming = _by_factory(
+        "SELECT m.factory, COUNT(*) c FROM eq_maint_schedule s JOIN eq_machines m ON m.eq_id=s.eq_id "
+        "WHERE s.active=TRUE AND s.next_due_date >= CURRENT_DATE "
+        "AND s.next_due_date <= CURRENT_DATE + 31 GROUP BY m.factory")
+
+    factories = list(FACTORY_ORDER)
+    for f in list(total) + list(issues):
+        if f and f not in factories:
+            factories.append(f)   # 예상 밖 공장값도 누락 없이 노출(예: '공통' 등)
+
+    out = []
+    for f in factories:
+        out.append({
+            'factory': f, 'total': total.get(f, 0), 'issues': issues.get(f, 0),
+            'today': today.get(f, 0), 'this_m': this_m.get(f, 0),
+            'pm_overdue': pm_overdue.get(f, 0), 'pm_upcoming': pm_upcoming.get(f, 0),
+        })
+    return [g for g in out if g['total'] or g['issues'] or g['pm_overdue'] or g['pm_upcoming']]
+
+
+# ── 설비 이슈 진행 이력(eq_issue_history) — 데스크탑(설비보전실)이 남기는 단계별 기록을
+# 모바일에서도 볼 수 있게(2026-07-21 팀장님 요청: "고장 접수가 너무 단순해서 건별 진행상황을
+# 보고 싶다"). 30건 정도의 이슈를 한 번에 보여주는 화면이라 이슈별로 따로따로 조회하지 않고
+# IN절 한 번으로 배치 조회 후 issue_id별로 묶어 돌려준다(N+1 방지).
+STAGE_ICON = {'신규등록': '📝', '이관': '📤', '점검시작': '🔧', '진행메모': '💬', '수리완료': '✅'}
+
+
+def fmt_eta(eta_at) -> str:
+    """예상 수리 완료(eta_at)를 모바일 카드에 짧게 보여줄 문구로 변환(2026-07-21 팀장님 요청 —
+    담당자가 점검시작 시 입력한 예상완료를 요청자도 볼 수 있게). eq_issues.eta_at은 데스크탑
+    (KST 로컬시각)이 datetime.now()로 그대로 저장한 naive timestamp라 tz 변환 없이 비교한다."""
+    if not eta_at:
+        return ''
+    import datetime as _dt
+    now = _dt.datetime.now()
+    overdue = eta_at < now
+    tag = '⏰ 예상시간 초과 · ' if overdue else '⏳ 예상완료 '
+    if eta_at.date() == now.date():
+        return f"{tag}{eta_at.strftime('%H:%M')}"
+    return f"{tag}{eta_at.strftime('%m/%d %H:%M')}"
+
+
+def eq_issue_histories_for(issue_ids: list) -> dict:
+    if not issue_ids:
+        return {}
+    rows = query(
+        "SELECT issue_id, happened_at, stage, actor_name, memo FROM eq_issue_history "
+        "WHERE issue_id = ANY(%s) ORDER BY happened_at", (list(issue_ids),))
+    out = {}
+    for r in rows:
+        out.setdefault(r['issue_id'], []).append({
+            'at': _to_kst(r['happened_at']).strftime('%m-%d %H:%M') if r.get('happened_at') else '',
+            'stage': r.get('stage') or '',
+            'icon': STAGE_ICON.get(r.get('stage'), '•'),
+            'by': r.get('actor_name') or '',
+            'memo': r.get('memo') or '',
+        })
+    return out
 
 
 def samgyup_dates(today_iso):

@@ -54,10 +54,10 @@
     {% if duties %}
       {% for d in duties %}
       <div class="c-row" style="{% if d.is_near %}background:#1E3A5F{% endif %}">
-        <span style="font-size:13px; font-weight:700; color:var(--text2); min-width:80px">
+        <span style="font-size:13px; font-weight:700; color:{% if d.is_near %}#93C5FD{% else %}var(--text2){% endif %}; min-width:80px">
           {{ d.date[5:] }} ({{ d.weekday }})
         </span>
-        <span style="flex:1; font-size:14px; font-weight:{% if d.is_near %}800{% else %}600{% endif %}">
+        <span style="flex:1; font-size:14px; font-weight:{% if d.is_near %}800{% else %}600{% endif %}; color:{% if d.is_near %}#FFFFFF{% else %}var(--text){% endif %}">
           {{ d.name or '미배정' }}
         </span>
         {% if d.is_today %}<span style="font-size:10px; color:#4ADE80; font-weight:800">오늘</span>{% endif %}

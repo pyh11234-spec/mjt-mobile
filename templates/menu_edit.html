@@ -87,6 +87,32 @@
   </form>
 
   <div class="t2 fs11 text-center mt-2">등록하면 대시보드와 식수현황에 바로 표시됩니다</div>
+
+  <!-- 직원 메뉴 신청함 -->
+  <div class="sec-lbl" style="margin-top:24px">📝 직원 메뉴 신청함</div>
+  <div class="c-card mb-3" style="padding:6px 16px 12px">
+    {% if menu_requests %}
+      {% for r in menu_requests %}
+      <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+        <div>
+          <b style="font-size:13px;color:var(--text)">{{ r.emp_name or r.emp_id or '익명' }}</b>
+          <span style="margin-left:6px;font-size:11px;color:var(--text3)">{{ r.created_at.strftime('%m-%d %H:%M') if r.created_at else '' }}</span>
+          <div style="font-size:14px;margin-top:3px;white-space:pre-wrap;color:var(--text)">{{ r.content }}</div>
+        </div>
+        <form method="post" style="flex-shrink:0;margin:0">
+          <input type="hidden" name="rid" value="{{ r.id }}">
+          {% if r.status == '전달완료' %}
+          <input type="hidden" name="action" value="req_undo">
+          <button type="submit" style="border:none;background:none;font-size:11px;font-weight:700;color:var(--green);white-space:nowrap;cursor:pointer">✓ 전달완료</button>
+          {% else %}
+          <input type="hidden" name="action" value="req_done">
+          <button type="submit" style="border:1px solid var(--border);background:var(--card2);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;color:var(--text2);white-space:nowrap;cursor:pointer">전달완료 처리</button>
+          {% endif %}
+        </form>
+      </div>
+      {% endfor %}
+    {% else %}<div class="t2 fs13" style="padding:12px 0">신청된 메뉴가 없습니다.</div>{% endif %}
+  </div>
   {% endif %}
 
 </div>

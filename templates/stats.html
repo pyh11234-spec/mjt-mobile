@@ -1,0 +1,188 @@
+{% extends 'base.html' %}
+{% set page = 'stats' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">식수 집계·정산</div>
+    <div class="pg-sub">관리팀 전용 — {{ today }} 기준</div>
+  </div>
+  <a href="/all" class="btn-ref">← 전체메뉴</a>
+</div>
+
+<div class="px-3 pt-3">
+
+  {% if not db_ok %}
+  <div style="background:#450A0A; border:1px solid var(--red); border-radius:10px;
+              padding:10px 14px; margin-bottom:10px; text-align:center; color:#FCA5A5; font-size:13px">
+    ⚠️ 서버 연결 불가 — 잠시 후 다시 시도해주세요.
+  </div>
+  {% endif %}
+
+  <!-- 오늘(지정일) 예정 인원 — 식당 공유용 -->
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:6px">
+    <div class="sec-lbl" style="margin-bottom:0">📋 식수 예정 인원 — 식당 공유용(매일 아침 준비량 안내)</div>
+    <a href="/manage/stats/expected.png?date={{ exp_date }}" class="btn-ref" style="background:#F59E0B; color:#3a2400; font-weight:700">🖼 식당 공유용 이미지</a>
+  </div>
+  <div class="c-card mb-3" style="padding:14px">
+    <form method="get" action="/manage/stats" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:10px">
+      <input type="hidden" name="from" value="{{ d_from }}">
+      <input type="hidden" name="to" value="{{ d_to }}">
+      <input type="hidden" name="preset" value="{{ preset }}">
+      <input type="date" name="date" value="{{ exp_date }}" style="padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:transparent; color:var(--text)">
+      <button type="submit" class="btn-ref" style="background:var(--accent); color:#fff; border:none">조회</button>
+    </form>
+    <div style="display:flex; flex-wrap:wrap; gap:14px; justify-content:space-around; text-align:center">
+      <div><div style="font-size:22px; font-weight:800; color:var(--accent)">{{ expected.lunch or 0 }}</div><div class="t2 fs11">중식</div></div>
+      <div><div style="font-size:22px; font-weight:800; color:var(--accent)">{{ expected.dinner or 0 }}</div><div class="t2 fs11">저녁도시락</div></div>
+      <div><div style="font-size:22px; font-weight:800; color:var(--accent)">{{ expected.weekend or 0 }}</div><div class="t2 fs11">특근식사</div></div>
+      <div><div style="font-size:22px; font-weight:800; color:var(--accent)">{{ expected.guest or 0 }}</div><div class="t2 fs11">외부손님</div></div>
+      <div><div style="font-size:22px; font-weight:800; color:#4ADE80">{{ expected.total or 0 }}</div><div class="t2 fs11">합계</div></div>
+    </div>
+  </div>
+
+  <!-- 기간 선택 -->
+  <div class="sec-lbl">📅 기간별 집계 · 정산</div>
+  <div class="c-card mb-3" style="padding:12px 14px">
+    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px">
+      <a href="/manage/stats?preset=today" class="btn-ref" style="{% if preset=='today' %}background:var(--accent); color:#fff{% endif %}">오늘</a>
+      <a href="/manage/stats?preset=week" class="btn-ref" style="{% if preset=='week' %}background:var(--accent); color:#fff{% endif %}">이번주</a>
+      <a href="/manage/stats?preset=month" class="btn-ref" style="{% if preset=='month' %}background:var(--accent); color:#fff{% endif %}">이번달</a>
+    </div>
+    <form method="get" action="/manage/stats" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+      <input type="hidden" name="date" value="{{ exp_date }}">
+      <input type="date" name="from" value="{{ d_from }}" style="padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:transparent; color:var(--text)">
+      <span class="t2 fs11">~</span>
+      <input type="date" name="to" value="{{ d_to }}" style="padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:transparent; color:var(--text)">
+      <button type="submit" class="btn-ref" style="background:var(--accent); color:#fff; border:none">조회</button>
+    </form>
+    <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border)">
+      <div class="t2 fs11" style="margin-bottom:6px; font-weight:700">💰 적용 단가 <span style="opacity:.7">— 식수 프로그램(데스크탑) 운영설정값, 여기서는 조회만 가능</span></div>
+      <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:baseline">
+        <div>중식 <b style="font-size:16px; color:var(--accent)">{{ '{:,}'.format(lunch_price) }}</b>원</div>
+        <div>도시락 <b style="font-size:16px; color:var(--accent)">{{ '{:,}'.format(dinner_price) }}</b>원</div>
+      </div>
+      {% if not lunch_price and not dinner_price %}
+      <div class="t2 fs11" style="color:#F59E0B; margin-top:4px">⚠ 단가 미설정 — 데스크탑 식수 프로그램 관리자 메뉴 "정산"에서 설정해주세요.</div>
+      {% endif %}
+      <div style="margin-top:10px; font-size:17px; font-weight:800; color:#4ADE80">정산 예상 총액 {{ '{:,}'.format(est_total) }}원</div>
+      <form method="post" action="/manage/stats/settle" style="margin-top:8px" onsubmit="return confirm('이 기간을 현재 단가·금액으로 확정해서 정산 이력에 저장할까요?')">
+        <input type="hidden" name="from" value="{{ d_from }}">
+        <input type="hidden" name="to" value="{{ d_to }}">
+        <button type="submit" class="btn-ref" style="background:#4ADE80; color:#052e16">✔ 정산 확정 저장(미결제로 등록)</button>
+      </form>
+    </div>
+    <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap">
+      <a href="/manage/stats/export.xlsx?from={{ d_from }}&to={{ d_to }}" class="btn-ref" style="background:#4ADE80; color:#052e16">⬇ 엑셀(정산용)</a>
+      <a href="/manage/stats/export.png?from={{ d_from }}&to={{ d_to }}" class="btn-ref" style="background:#60A5FA; color:#0c2a4a">🖼 이미지로 저장(정산용)</a>
+    </div>
+  </div>
+
+  <div class="sec-lbl">{{ d_from }} ~ {{ d_to }} <span class="t2 fs11">(데스크탑 정산화면과 동일 카테고리)</span></div>
+  <div class="c-card mb-3" style="overflow-x:auto">
+    {% if rows %}
+    <table style="width:100%; border-collapse:collapse; font-size:12px; white-space:nowrap">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left; padding:8px 10px">날짜</th>
+          <th style="text-align:right; padding:8px 10px">중식</th>
+          <th style="text-align:right; padding:8px 10px">도시락(남)</th>
+          <th style="text-align:right; padding:8px 10px">도시락(여)</th>
+          <th style="text-align:right; padding:8px 10px">특근구내</th>
+          <th style="text-align:right; padding:8px 10px">특근도시락</th>
+          <th style="text-align:right; padding:8px 10px">특근배달</th>
+          <th style="text-align:right; padding:8px 10px">외부손님</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:7px 10px">{{ r.date }}</td>
+          <td style="text-align:right; padding:7px 10px">{{ r.lunch }}</td>
+          <td style="text-align:right; padding:7px 10px">{{ r.dinner_male }}</td>
+          <td style="text-align:right; padding:7px 10px">{{ r.dinner_female }}</td>
+          <td style="text-align:right; padding:7px 10px">{{ r.wkg }}</td>
+          <td style="text-align:right; padding:7px 10px">{{ r.wkb }}</td>
+          <td style="text-align:right; padding:7px 10px">{{ r.wkd }}</td>
+          <td style="text-align:right; padding:7px 10px">{{ r.guest }}</td>
+        </tr>
+        {% endfor %}
+        <tr style="font-weight:800; background:#1E3A5F">
+          <td style="padding:8px 10px">합계</td>
+          <td style="text-align:right; padding:8px 10px">{{ totals.lunch or 0 }}</td>
+          <td style="text-align:right; padding:8px 10px">{{ totals.dinner_male or 0 }}</td>
+          <td style="text-align:right; padding:8px 10px">{{ totals.dinner_female or 0 }}</td>
+          <td style="text-align:right; padding:8px 10px">{{ totals.wkg or 0 }}</td>
+          <td style="text-align:right; padding:8px 10px">{{ totals.wkb or 0 }}</td>
+          <td style="text-align:right; padding:8px 10px">{{ totals.wkd or 0 }}</td>
+          <td style="text-align:right; padding:8px 10px">{{ totals.guest or 0 }}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="t2 fs11" style="margin-top:8px; color:var(--text3)">특근 회사부담(참고) {{ '{:,}'.format(totals.weekend_copay or 0) }}원 · 특근 개인부담(참고) {{ '{:,}'.format(totals.weekend_perpay or 0) }}원 — 정산 총액엔 미포함(데스크탑과 동일)</div>
+    {% else %}
+    <div class="empty">해당 기간 식수 기록이 없습니다</div>
+    {% endif %}
+  </div>
+
+  <!-- 정산 이력 -->
+  <div class="sec-lbl">📜 정산 이력 <span class="t2 fs11">(결제 처리 여부 추적)</span></div>
+  <div class="c-card mb-3" style="overflow-x:auto">
+    {% if settlements %}
+    <table style="width:100%; border-collapse:collapse; font-size:12px; white-space:nowrap">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left; padding:7px 9px">기간</th>
+          <th style="text-align:right; padding:7px 9px">총액</th>
+          <th style="text-align:center; padding:7px 9px">상태</th>
+          <th style="text-align:left; padding:7px 9px">처리</th>
+          <th style="text-align:left; padding:7px 9px">등록</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in settlements %}
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:7px 9px">{{ s.d_from }} ~ {{ s.d_to }}</td>
+          <td style="text-align:right; padding:7px 9px; font-weight:700">{{ '{:,}'.format(s.total_amount or 0) }}원</td>
+          <td style="text-align:center; padding:7px 9px">
+            {% if s.paid %}<span style="background:#166534; color:#DCFCE7; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700">결제완료</span>
+            {% else %}<span style="background:#7C2D12; color:#FED7AA; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700">미결제</span>{% endif %}
+          </td>
+          <td style="padding:7px 9px">
+            <form method="post" action="/manage/stats/settle/{{ s.id }}/toggle" style="display:inline">
+              <input type="hidden" name="paid" value="{{ '0' if s.paid else '1' }}">
+              <button type="submit" class="btn-ref" style="padding:3px 10px; font-size:11px">{{ '미결제로 되돌리기' if s.paid else '✔ 결제완료 처리' }}</button>
+            </form>
+          </td>
+          <td class="t2 fs11" style="padding:7px 9px">{{ s.created_by }} · {{ s.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">저장된 정산 이력이 없습니다</div>
+    {% endif %}
+  </div>
+
+  <!-- 다운로드 로그 -->
+  <div class="sec-lbl">🔍 다운로드 로그 <span class="t2 fs11">(누가·언제·무엇을 받았는지)</span></div>
+  <div class="c-card mb-3">
+    {% if dl_logs %}
+      {% for l in dl_logs %}
+      <div class="c-row">
+        <span style="font-size:13px; font-weight:700; min-width:70px">{{ l.name }}</span>
+        <span style="flex:1; font-size:12px; color:var(--text2)">{{ l.kind }}</span>
+        <span class="t2 fs11">{{ l.at }}</span>
+      </div>
+      {% endfor %}
+    {% else %}
+    <div class="empty">다운로드 기록이 없습니다</div>
+    {% endif %}
+  </div>
+
+  <div class="t2 fs11 mb-3" style="color:var(--text3); text-align:center">
+    중식·저녁·외부손님은 건수, 특근은 인원·금액(원) 기준입니다. 단가 입력 시 정산 총액이 자동 산출됩니다.
+  </div>
+
+</div>
+{% endblock %}

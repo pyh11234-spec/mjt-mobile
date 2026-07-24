@@ -151,6 +151,30 @@ def _hub_access_allowed(emp_id: str, name: str) -> bool:
         return True
 
 
+def _stats_access_ok(emp_id: str, name: str) -> bool:
+    """관리팀 집계·정산 페이지 전용 게이트 — 앱 전체 개방여부(app_policies)와 무관하게
+    허브 '🛂 사용 권한 부여'에서 이 emp_id에 app_key='siksu' 담당자 권한이 지정된 사람만 통과.
+    없으면 access_requests에 대기 등록(허브 승인 센터에서 승인하면 다음 접속부터 통과).
+    ★fail-open: DB 조회 자체가 실패하면 통과(오프라인 내구성 우선, #25 원칙과 동일)."""
+    try:
+        if not db_pg.is_available():
+            return True
+        role = db_pg.query_one(
+            "SELECT role FROM app_roles WHERE emp_id=%s AND app_key=%s", (emp_id, _SIKSU_APP_KEY))
+        if role:
+            return True
+        pending = db_pg.query_one(
+            "SELECT id FROM access_requests WHERE emp_id=%s AND app_key=%s AND status='대기'",
+            (emp_id, _SIKSU_APP_KEY))
+        if not pending:
+            db_pg.execute(
+                "INSERT INTO access_requests (emp_id, name, app_key, status, requested_at) "
+                "VALUES (%s, %s, %s, '대기', NOW())", (emp_id, name, _SIKSU_APP_KEY))
+        return False
+    except Exception:
+        return True
+
+
 def _phone_last4(phone: str) -> str:
     """전화번호에서 숫자만 추출 후 끝 4자리 반환."""
     import re as _re
@@ -344,7 +368,23 @@ _MEAL_RPC_ALLOW = {
     'has_chinese_menu', 'delete_chinese_menu', 'list_chinese_menus_raw', 'get_managed_holidays',
     'add_managed_holiday', 'delete_managed_holiday', 'get_today_menu', 'save_today_menu',
     'get_month_menus', 'get_admin', 'log_delete', 'is_available',
+    'get_setting_log', 'save_settlement', 'list_settlements', 'toggle_settlement_paid',
+    'log_program_launch',
 }
+
+def _json_safe(obj):
+    """RPC 결과의 datetime/date 등을 ISO 문자열로 재귀 변환 — Flask 기본 JSON 인코더가
+    datetime을 RFC1123("Tue, 14 Jul 2026 03:35:07 GMT")로 바꿔버려 클라이언트 _hms()가
+    시간 문자열을 못 알아보던 버그(2026-07-14 발견) 근본 수정. dict/list 재귀 처리."""
+    import datetime as _dtm
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, (_dtm.datetime, _dtm.date, _dtm.time)):
+        return obj.isoformat()
+    return obj
+
 
 @app.route('/api/desktop/meal/call', methods=['POST'])
 def api_desktop_meal_call():
@@ -362,7 +402,7 @@ def api_desktop_meal_call():
             _s.path.insert(0, _p)
         import meal_repo
         res = getattr(meal_repo, fn)(*(b.get('args') or []), **(b.get('kwargs') or {}))
-        return jsonify(ok=True, result=res)
+        return jsonify(ok=True, result=_json_safe(res))
     except Exception as e:
         return jsonify(ok=False, msg=str(e)), 500
 
@@ -482,6 +522,7 @@ _IMP_RPC_ALLOW = {
     'dash_counts', 'year_stats', 'quarter_stats', 'proposer_stats', 'list_categories',
     'search_similar', 'list_recruit', 'get_suggestion', 'grade_reward', 'search_history',
     'sustain_queue', 'insert_suggestion', 'set_driver', 'update_eval', 'is_available',
+    'lookup_employee', 'search_employees',
 }
 
 @app.route('/api/desktop/imp/call', methods=['POST'])
@@ -535,7 +576,7 @@ def api_desktop_process_call():
 
 # ── 데스크탑 설비PM RPC — 서버가 부모 equipment_repo를 그대로 실행. 화이트리스트 필수 ──
 _EQUIP_RPC_ALLOW = {
-    'kpi_counts', 'issue_queue', 'list_processes', 'list_equipment', 'filter_equipment',
+    'kpi_counts', 'status_breakdown', 'issue_queue', 'list_processes', 'list_equipment', 'filter_equipment',
     'all_eq_ids', 'eq_info', 'eq_row', 'eq_name', 'search_issues', 'search_history',
     'master_list', 'eq_history', 'pm_get', 'pm_alert_cfg', 'pm_set',
     'add_issue_selfsolve', 'add_issue_transfer', 'update_machine', 'add_machine',
@@ -916,8 +957,9 @@ def get_wkend_plan() -> list:
             support = int(r[2]) if len(r) > 2 and r[2].strip().isdigit() else 0
             notice  = r[3].strip() if len(r) > 3 else ''
             wd = '월화수목금토일'[d.weekday()]
-            out.append({'date': ds, 'weekday': wd, 'mode': mode,
-                        'support': support, 'notice': notice})
+            # Sheets 레거시엔 슬롯 구분이 없어 오전 슬롯 하나로 취급(오후는 미운영)
+            out.append({'date': ds, 'weekday': wd, 'am_mode': mode, 'pm_mode': '없음',
+                        'day_deadline': '', 'support': support, 'notice': notice})
         out.sort(key=lambda x: x['date'])
         return out[:6]
     return _cached('wkend_plan', _f, ttl=180)
@@ -2034,8 +2076,21 @@ def menu_edit():
         elif action == 'logout':
             session.pop('menu_auth', None)
             return redirect(url_for('menu_edit'))
+        elif action == 'req_done' and session.get('menu_auth'):
+            try:
+                db_pg.set_menu_request_status(int(request.form.get('rid')), '전달완료')
+            except Exception:
+                pass
+            return redirect(url_for('menu_edit'))
+        elif action == 'req_undo' and session.get('menu_auth'):
+            try:
+                db_pg.set_menu_request_status(int(request.form.get('rid')), '접수')
+            except Exception:
+                pass
+            return redirect(url_for('menu_edit'))
 
     current_menu = get_today_menu(ds) if session.get('menu_auth') else ''
+    menu_requests = db_pg.list_menu_requests() if session.get('menu_auth') and db_pg.is_available() else []
     return render_template('menu_edit.html',
         ds=ds,
         authed=session.get('menu_auth', False),
@@ -2043,7 +2098,24 @@ def menu_edit():
         error=error,
         saved=saved,
         weekday='월화수목금토일'[today.weekday()],
+        menu_requests=menu_requests,
     )
+
+
+@app.route('/menu_request', methods=['GET', 'POST'])
+def menu_request():
+    """메뉴 신청함 — 3공장 식당 종이 메모장 디지털화. 누구나 자유롭게 원하는 메뉴를 남긴다."""
+    emp_id = session.get('emp_id')
+    if request.method == 'POST':
+        content = (request.form.get('content') or '').strip()
+        if content and db_pg.is_available():
+            db_pg.add_menu_request(emp_id, session.get('emp_name', ''), content)
+        return redirect(url_for('menu_request'))
+    try:
+        items = db_pg.list_menu_requests() if db_pg.is_available() else []
+    except Exception as e:
+        return render_template('error.html', error=str(e))
+    return render_template('menu_request.html', items=items)
 
 
 @app.route('/ot_schedule')
@@ -2998,12 +3070,18 @@ def api_meal_checkin():
 
 
 # ── 특근(토·일) 식사 사전신청 (모바일) ──────────────────────────────
+# ★2026-07-24: 오전/오후 슬롯 + 식사여부(no_meal) UI 완성(팀장님 2026-06-26 메모 대기 항목).
+# 이전엔 checkin.html이 레거시 단일 mode만 다뤄 am_mode/pm_mode(둘 다 서버 데이터엔 이미
+# 존재)를 UI에서 구분 못 했고, add_weekend() 호출도 위치인자 개수가 안 맞아 memo로 줄
+# 값('웹신청')이 slot 컬럼에 잘못 들어가고 있었음(키워드 인자로 전환해 근본 수정).
 @app.route('/api/wkend_request', methods=['POST'])
 def api_wkend_request():
     body     = request.get_json(silent=True) or {}
     emp_id   = (session.get('emp_id') or '').strip()   # 로그인 본인만 — 대리신청 차단
     req_date = (body.get('date') or '').strip()
     menu_in  = (body.get('menu') or '').strip()
+    slot_in  = (body.get('slot') or '').strip()         # '오전' / '오후'
+    no_meal  = bool(body.get('no_meal'))
 
     if not emp_id:
         return jsonify({'ok': False, 'error': '로그인이 필요합니다'})
@@ -3032,15 +3110,32 @@ def api_wkend_request():
         except Exception:
             pass
 
-    # 운영 형태: 신규 스키마는 am_mode/pm_mode — 운영 중인 형태를 채택(레거시 'mode' 폴백)
-    mode    = (setting.get('mode') or '').strip()
-    if not mode or mode == '없음':
-        am = (setting.get('am_mode') or '없음'); pm = (setting.get('pm_mode') or '없음')
-        mode = am if am != '없음' else (pm if pm != '없음' else '구내식당')
-    support = setting['support']
+    # 슬롯(오전/오후) 결정 — 둘 다 운영 중이면 slot 필수, 하나만 운영이면 자동 결정(구버전 호출 호환)
+    am = (setting.get('am_mode') or '없음').strip()
+    pm = (setting.get('pm_mode') or '없음').strip()
+    if am != '없음' and pm != '없음':
+        if slot_in not in ('오전', '오후'):
+            return jsonify({'ok': False, 'error': '오전/오후 중 신청할 시간대를 선택하세요'})
+        slot = slot_in
+    elif am != '없음':
+        slot = '오전'
+    elif pm != '없음':
+        slot = '오후'
+    else:
+        return jsonify({'ok': False, 'error': '해당 날짜는 특근 식사 미운영입니다'})
+    mode = am if slot == '오전' else pm
 
-    # 메뉴·금액 (PC 식당과 동일 계산식: co_pay=min(가격,지원), per_pay=초과분)
-    if mode in ('배달', '중국집'):
+    support = setting['support']
+    emps     = get_employees()
+    emp      = next((e for e in emps if str(e.get('사원번호', '')).strip() == emp_id), {})
+    emp_name = emp.get('성명', '')
+    dept     = emp.get('부서명', '')
+    rank     = emp.get('직급', '')
+
+    if no_meal:
+        # 식사 안 함 — 인원집계에서 빠지되, "신청은 했으나 식사는 불필요"를 기록으로 남김
+        menu, price, co_pay, per_pay = '', 0, 0, 0
+    elif mode in ('배달', '중국집'):
         menus = {m['name']: m['price'] for m in get_chinese_menus()}
         if not menus:
             return jsonify({'ok': False, 'error': '등록된 배달 메뉴가 없습니다'})
@@ -3057,25 +3152,20 @@ def api_wkend_request():
         co_pay  = support
         per_pay = 0
 
-    emps     = get_employees()
-    emp      = next((e for e in emps if str(e.get('사원번호', '')).strip() == emp_id), {})
-    emp_name = emp.get('성명', '')
-    dept     = emp.get('부서명', '')
-    rank     = emp.get('직급', '')
-
     now_t = datetime.now(KST).strftime('%H:%M:%S')
     try:
         import db_pg
         if db_pg.is_available():
             ok = db_pg.add_weekend(req_date, emp_id, emp_name, dept, rank, mode, menu,
-                                   price, co_pay, per_pay, 1, False, '웹신청')
+                                   price=price, co_pay=co_pay, per_pay=per_pay, headcount=1,
+                                   no_meal=no_meal, slot=slot, memo='웹신청')
             if not ok:
-                return jsonify({'ok': False, 'error': '이미 신청됨'})
+                return jsonify({'ok': False, 'error': '이미 신청됨(해당 시간대)'})
             with _lock:
                 _cache.pop(f'meal_{req_date}', None)
-            return jsonify({'ok': True, 'name': emp_name, 'mode': mode,
-                            'menu': menu, 'per_pay': per_pay})
-        # 폴백: Sheets
+            return jsonify({'ok': True, 'name': emp_name, 'slot': slot, 'mode': mode,
+                            'menu': menu, 'per_pay': per_pay, 'no_meal': no_meal})
+        # 폴백: Sheets (레거시 — slot 미저장, 하위호환 최소동작만)
         sh = _open_sh()
         ws = sh.worksheet('특근식사')
         for r in ws.get_all_values()[1:]:        # 중복 신청 방지(같은 날짜+사번)
@@ -3084,12 +3174,12 @@ def api_wkend_request():
         # 행 포맷: [날짜,시간,사번,성명,부서,직급,mode,menu,price,co_pay,per_pay,count,reason,no_meal]
         ws.append_row(
             [req_date, now_t, emp_id, emp_name, dept, rank,
-             mode, menu, price, co_pay, per_pay, 1, '웹신청', ''],
+             mode, menu, price, co_pay, per_pay, 1, '웹신청', no_meal],
             value_input_option='USER_ENTERED')
         with _lock:
             _cache.pop(f'meal_{req_date}', None)
-        return jsonify({'ok': True, 'name': emp_name, 'mode': mode,
-                        'menu': menu, 'per_pay': per_pay})
+        return jsonify({'ok': True, 'name': emp_name, 'slot': slot, 'mode': mode,
+                        'menu': menu, 'per_pay': per_pay, 'no_meal': no_meal})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
 
@@ -3247,6 +3337,325 @@ def duty_view():
 
 
 # ═══════════════════════════════════════════════════════════════
+# 관리팀 식수 집계·정산 (2026-07-14 신규) — 권한 부여자만(허브 '사용 권한 부여'에서
+# app_key='siksu' 담당자 지정). 전용 PC(식당) 종속 없이 브라우저로 어디서나 조회.
+# ═══════════════════════════════════════════════════════════════
+def _stats_period(preset, d_from, d_to):
+    today = _today_kst()
+    if d_from and d_to:
+        return d_from, d_to
+    if preset == 'today':
+        ds = today.strftime('%Y-%m-%d')
+        return ds, ds
+    if preset == 'month':
+        import calendar as _cal
+        _, last_day = _cal.monthrange(today.year, today.month)
+        return f'{today.year}-{today.month:02d}-01', f'{today.year}-{today.month:02d}-{last_day:02d}'
+    # 기본값 preset == 'week' — 이번 주 월~일
+    mon = today - timedelta(days=today.weekday())
+    sun = mon + timedelta(days=6)
+    return mon.strftime('%Y-%m-%d'), sun.strftime('%Y-%m-%d')
+
+
+def _int0(v):
+    try:
+        return int(str(v).replace(',', '').strip() or 0)
+    except Exception:
+        return 0
+
+
+def _current_prices():
+    """단가는 식수 프로그램(데스크탑) 운영설정이 메인 — 모바일은 읽기만(직접 입력 불가)."""
+    s = db_pg.op_settings() if db_pg.is_available() else {}
+    return _int0(s.get('중식단가')), _int0(s.get('도시락단가'))
+
+
+@app.route('/manage/stats')
+def manage_stats():
+    """관리팀 집계·정산 — 오늘 예정 인원 + 기간별(일/주/월/커스텀) 집계 + 엑셀/이미지.
+    단가는 식수 프로그램(데스크탑) 운영설정값을 읽기 전용으로 표시(모바일에서 직접 입력 불가)."""
+    emp_id = session.get('emp_id', '')
+    name = session.get('emp_name', '')
+    if not _stats_access_ok(emp_id, name):
+        return render_template('error.html',
+            error='이 화면은 권한이 부여된 담당자만 볼 수 있습니다.\n'
+                  '접근 요청이 자동 접수되었습니다 — 관리자 승인 후 다시 접속하면 보입니다.')
+    today = _today_kst().strftime('%Y-%m-%d')
+    exp_date = request.args.get('date') or today
+    preset = request.args.get('preset', 'week')
+    d_from, d_to = _stats_period(preset, request.args.get('from'), request.args.get('to'))
+    lunch_price, dinner_price = _current_prices()
+    expected = db_pg.meal_expected(exp_date) if db_pg.is_available() else {}
+    summary = db_pg.meal_range_summary(d_from, d_to) if db_pg.is_available() else {'rows': [], 'totals': {}}
+    t = summary['totals']
+    est_total = ((t.get('lunch', 0) + t.get('guest', 0)) * lunch_price +
+                 (t.get('dinner_male', 0) + t.get('dinner_female', 0)) * dinner_price)
+    settlements = db_pg.list_settlements() if db_pg.is_available() else []
+    dl_logs = db_pg.recent_export_logs() if db_pg.is_available() else []
+    return render_template('stats.html', today=today, exp_date=exp_date, preset=preset, d_from=d_from, d_to=d_to,
+                            expected=expected, rows=summary['rows'], totals=summary['totals'],
+                            lunch_price=lunch_price, dinner_price=dinner_price,
+                            est_total=est_total, settlements=settlements, dl_logs=dl_logs,
+                            db_ok=db_pg.is_available())
+
+
+@app.route('/manage/stats/settle', methods=['POST'])
+def manage_stats_settle():
+    """정산 확정 저장 — 현재 기간 + 식수 프로그램 설정 단가로 총액 계산해 미결제 상태로 기록."""
+    emp_id = session.get('emp_id', '')
+    name = session.get('emp_name', '')
+    if not _stats_access_ok(emp_id, name):
+        return render_template('error.html', error='권한이 부여된 담당자만 저장할 수 있습니다.')
+    d_from = request.form.get('from', '')
+    d_to = request.form.get('to', '')
+    lunch_price, dinner_price = _current_prices()
+    summary = db_pg.meal_range_summary(d_from, d_to) if db_pg.is_available() else {'totals': {}}
+    t = summary['totals']
+    if db_pg.is_available():
+        db_pg.save_settlement(d_from, d_to, t.get('lunch', 0), t.get('guest', 0), lunch_price,
+                               t.get('dinner_male', 0), t.get('dinner_female', 0), dinner_price,
+                               t.get('wkg', 0), t.get('wkb', 0), t.get('wkd', 0),
+                               t.get('weekend_copay', 0), t.get('weekend_perpay', 0), name or emp_id)
+    return redirect(url_for('manage_stats', **{'from': d_from, 'to': d_to}))
+
+
+@app.route('/manage/stats/settle/<int:sid>/toggle', methods=['POST'])
+def manage_stats_settle_toggle(sid):
+    """정산 건 결제완료 ↔ 미결제 토글."""
+    emp_id = session.get('emp_id', '')
+    name = session.get('emp_name', '')
+    if not _stats_access_ok(emp_id, name):
+        return render_template('error.html', error='권한이 부여된 담당자만 처리할 수 있습니다.')
+    paid = (request.form.get('paid') == '1')
+    if db_pg.is_available():
+        db_pg.toggle_settlement_paid(sid, paid, name or emp_id)
+    return redirect(url_for('manage_stats'))
+
+
+@app.route('/manage/stats/export.xlsx')
+def manage_stats_export():
+    emp_id = session.get('emp_id', '')
+    name = session.get('emp_name', '')
+    if not _stats_access_ok(emp_id, name):
+        return render_template('error.html', error='권한이 부여된 담당자만 다운로드할 수 있습니다.')
+    _log_access(emp_id, _ip(), request.path, success=True)
+    today_str = _today_kst().strftime('%Y-%m-%d')
+    d_from = request.args.get('from') or today_str
+    d_to = request.args.get('to') or d_from
+    lunch_price, dinner_price = _current_prices()
+    summary = db_pg.meal_range_summary(d_from, d_to) if db_pg.is_available() else {'rows': [], 'totals': {}}
+
+    gen_ts = datetime.now(KST).strftime('%Y-%m-%d %H:%M')
+    downloader = '%s(%s)' % (name or emp_id, emp_id)
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    wb = Workbook(); ws = wb.active; ws.title = '식수집계'
+    cols = ['날짜', '중식', '도시락(남)', '도시락(여)', '특근구내', '특근도시락', '특근배달', '외부손님']
+    ws.append(['생성 ' + gen_ts, '', '', '', '', '', '', '다운로드 ' + downloader])
+    ws.cell(1, 1).font = Font(size=10, color='64748B')
+    ws.cell(1, 8).font = Font(size=10, color='64748B', bold=True)
+    ws.cell(1, 8).alignment = Alignment(horizontal='right')
+    ws.append(cols)
+    for c in ws[2]:
+        c.font = Font(bold=True, color='FFFFFF'); c.fill = PatternFill('solid', fgColor='1F2937')
+        c.alignment = Alignment(horizontal='center')
+    for r in summary['rows']:
+        ws.append([r['date'], r['lunch'], r['dinner_male'], r['dinner_female'],
+                   r['wkg'], r['wkb'], r['wkd'], r['guest']])
+    t = summary['totals']
+    if summary['rows']:
+        ws.append(['합계', t.get('lunch', 0), t.get('dinner_male', 0), t.get('dinner_female', 0),
+                   t.get('wkg', 0), t.get('wkb', 0), t.get('wkd', 0), t.get('guest', 0)])
+        for c in ws[ws.max_row]:
+            c.font = Font(bold=True)
+    est_total = ((t.get('lunch', 0) + t.get('guest', 0)) * lunch_price +
+                 (t.get('dinner_male', 0) + t.get('dinner_female', 0)) * dinner_price)
+    ws.append([])
+    ws.append(['단가(식수 프로그램 설정)', '중식 %s원' % format(lunch_price, ','),
+               '도시락 %s원' % format(dinner_price, ',')])
+    ws.append(['정산 예상 총액(원)', format(est_total, ',')])
+    ws.cell(ws.max_row, 1).font = Font(bold=True, size=13)
+    ws.cell(ws.max_row, 2).font = Font(bold=True, size=13, color='1565C0')
+    ws.append(['특근 회사부담(참고)', format(t.get('weekend_copay', 0), ','),
+               '특근 개인부담(참고)', format(t.get('weekend_perpay', 0), ',')])
+    for i, w in enumerate([12, 10, 12, 12, 10, 10, 10, 10], 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    ws.freeze_panes = 'A3'
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    fname = f'식수집계_{d_from}_{d_to}.xlsx'.replace(':', '')
+    return send_file(buf, as_attachment=True, download_name=fname,
+                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+def _pil_font(sz, bold=False):
+    from PIL import ImageFont
+    try:
+        return ImageFont.truetype('C:/Windows/Fonts/' + ('malgunbd.ttf' if bold else 'malgun.ttf'), sz)
+    except Exception:
+        return ImageFont.load_default()
+
+
+@app.route('/manage/stats/export.png')
+def manage_stats_export_png():
+    """집계표를 이미지(PNG)로 — 엑셀을 열기 번거로운 폰에서 바로 보고 저장하기 편하도록(밝은 배경)."""
+    emp_id = session.get('emp_id', '')
+    name = session.get('emp_name', '')
+    if not _stats_access_ok(emp_id, name):
+        return render_template('error.html', error='권한이 부여된 담당자만 다운로드할 수 있습니다.')
+    _log_access(emp_id, _ip(), request.path, success=True)
+    today_str = _today_kst().strftime('%Y-%m-%d')
+    d_from = request.args.get('from') or today_str
+    d_to = request.args.get('to') or d_from
+    lunch_price, dinner_price = _current_prices()
+    summary = db_pg.meal_range_summary(d_from, d_to) if db_pg.is_available() else {'rows': [], 'totals': {}}
+
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return render_template('error.html',
+            error='이미지 저장 기능에 필요한 Pillow 패키지가 서버에 설치되어 있지 않습니다.\n'
+                  '서버에서 pip install pillow 실행 후 다시 시도하세요.')
+
+    f_title = _pil_font(22, bold=True)
+    f_hdr = _pil_font(15, bold=True)
+    f_cell = _pil_font(14)
+    f_note = _pil_font(13)
+    f_meta = _pil_font(12)
+
+    cols = ['날짜', '중식', '도시락(남)', '도시락(여)', '특근구내', '특근도시락', '특근배달', '외부손님']
+    widths = [100, 70, 70, 70, 70, 70, 70, 70]
+    rows = summary['rows']
+    t = summary['totals']
+    data_rows = [[r['date'], r['lunch'], r['dinner_male'], r['dinner_female'],
+                  r['wkg'], r['wkb'], r['wkd'], r['guest']] for r in rows]
+    if rows:
+        data_rows.append(['합계', t.get('lunch', 0), t.get('dinner_male', 0), t.get('dinner_female', 0),
+                           t.get('wkg', 0), t.get('wkb', 0), t.get('wkd', 0), t.get('guest', 0)])
+
+    est_total = ((t.get('lunch', 0) + t.get('guest', 0)) * lunch_price +
+                 (t.get('dinner_male', 0) + t.get('dinner_female', 0)) * dinner_price)
+
+    row_h = 34
+    hdr_h = 40
+    title_h = 74
+    pad = 16
+    price_h = 68
+    W = sum(widths) + pad * 2
+    H = title_h + hdr_h + row_h * max(len(data_rows), 1) + price_h + pad
+
+    BG, LINE, HDRBG, TOTBG = '#FFFFFF', '#CBD5E1', '#1F2937', '#E0E7FF'
+    TXT, TXT2 = '#0F172A', '#334155'
+    gen_ts = datetime.now(KST).strftime('%Y-%m-%d %H:%M')
+    downloader = '%s(%s)' % (name or emp_id, emp_id)
+    img = Image.new('RGB', (W, H), BG)
+    d = ImageDraw.Draw(img)
+    d.text((pad, 12), f'식수 집계(정산용) · {d_from} ~ {d_to}', font=f_title, fill=TXT)
+    d.text((W - pad, 40), f'다운로드 {downloader}', font=f_meta, fill=TXT2, anchor='ra')
+    d.text((W - pad, 56), f'생성 {gen_ts}', font=f_meta, fill='#94A3B8', anchor='ra')
+
+    y = title_h
+    x = pad
+    for c, w in zip(cols, widths):
+        d.rectangle([x, y, x + w, y + hdr_h], fill=HDRBG, outline=LINE)
+        d.text((x + w / 2, y + hdr_h / 2), c, font=f_hdr, fill='#FFFFFF', anchor='mm')
+        x += w
+    y += hdr_h
+
+    if not data_rows:
+        d.text((pad, y + 10), '해당 기간 식수 기록이 없습니다', font=f_cell, fill=TXT2)
+    for ri, row in enumerate(data_rows):
+        is_total = (ri == len(data_rows) - 1 and rows)
+        bg = TOTBG if is_total else ('#F8FAFC' if ri % 2 else BG)
+        fnt = f_hdr if is_total else f_cell
+        x = pad
+        for ci, (val, w) in enumerate(zip(row, widths)):
+            d.rectangle([x, y, x + w, y + row_h], fill=bg, outline=LINE)
+            anchor_x = x + 10 if ci == 0 else x + w - 10
+            align = 'lm' if ci == 0 else 'rm'
+            d.text((anchor_x, y + row_h / 2), str(val), font=fnt, fill=TXT, anchor=align)
+            x += w
+        y += row_h
+
+    d.rectangle([pad, y, pad + sum(widths), y + price_h], fill='#EFF6FF', outline=LINE)
+    d.text((pad + 10, y + 8), '단가(식수 프로그램 설정) — 중식 %s원 · 도시락 %s원' % (
+           format(lunch_price, ','), format(dinner_price, ',')),
+           font=f_note, fill=TXT2)
+    d.text((pad + 10, y + 34), '정산 예상 총액  %s원' % format(est_total, ','),
+           font=f_hdr, fill='#1D4ED8')
+
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    fname = f'식수집계_{d_from}_{d_to}.png'.replace(':', '')
+    return send_file(buf, as_attachment=True, download_name=fname, mimetype='image/png')
+
+
+@app.route('/manage/stats/expected.png')
+def manage_stats_expected_png():
+    """오늘(또는 지정일) 예정 인원 — 식당 공유용 이미지. 매일 아침 부페 준비량 안내에 사용."""
+    emp_id = session.get('emp_id', '')
+    name = session.get('emp_name', '')
+    if not _stats_access_ok(emp_id, name):
+        return render_template('error.html', error='권한이 부여된 담당자만 다운로드할 수 있습니다.')
+    _log_access(emp_id, _ip(), request.path, success=True)
+    ds = request.args.get('date') or _today_kst().strftime('%Y-%m-%d')
+    expected = db_pg.meal_expected(ds) if db_pg.is_available() else {}
+
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return render_template('error.html',
+            error='이미지 저장 기능에 필요한 Pillow 패키지가 서버에 설치되어 있지 않습니다.\n'
+                  '서버에서 pip install pillow 실행 후 다시 시도하세요.')
+
+    f_title = _pil_font(24, bold=True)
+    f_num = _pil_font(40, bold=True)
+    f_lbl = _pil_font(16)
+    f_tot_num = _pil_font(48, bold=True)
+    f_tot_lbl = _pil_font(17, bold=True)
+    f_meta = _pil_font(12)
+
+    items = [('중식', expected.get('lunch', 0)), ('저녁도시락', expected.get('dinner', 0)),
+             ('특근식사', expected.get('weekend', 0)), ('외부손님', expected.get('guest', 0))]
+    W = 640
+    card_w = (W - 40 - 30) / 4  # 좌우 여백20씩 + 카드 사이 간격
+    card_h = 130
+    title_h = 90
+    tot_h = 110
+    H = title_h + card_h + tot_h + 40
+
+    gen_ts = datetime.now(KST).strftime('%Y-%m-%d %H:%M')
+    downloader = '%s(%s)' % (name or emp_id, emp_id)
+    img = Image.new('RGB', (W, H), '#FFFFFF')
+    d = ImageDraw.Draw(img)
+    d.text((W - 16, 12), f'다운로드 {downloader}', font=f_meta, fill='#475569', anchor='ra')
+    d.text((W - 16, 28), f'생성 {gen_ts}', font=f_meta, fill='#94A3B8', anchor='ra')
+    d.text((W / 2, 58), f'🍽 {ds} 식수 예정 인원', font=f_title, fill='#0F172A', anchor='mm')
+
+    x = 20
+    y = title_h
+    for lbl, val in items:
+        d.rectangle([x, y, x + card_w, y + card_h], fill='#F1F5F9', outline='#CBD5E1', width=1)
+        d.text((x + card_w / 2, y + card_h / 2 - 18), str(val), font=f_num, fill='#1D4ED8', anchor='mm')
+        d.text((x + card_w / 2, y + card_h / 2 + 32), lbl, font=f_lbl, fill='#475569', anchor='mm')
+        x += card_w + 10
+
+    y += card_h + 16
+    d.rectangle([20, y, W - 20, y + tot_h - 16], fill='#1D4ED8')
+    d.text((W / 2, y + (tot_h - 16) / 2 - 20), str(expected.get('total', 0)), font=f_tot_num,
+           fill='#FFFFFF', anchor='mm')
+    d.text((W / 2, y + (tot_h - 16) / 2 + 26), '합계(식당 준비 인원)', font=f_tot_lbl,
+           fill='#DBEAFE', anchor='mm')
+
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    fname = f'식수예정_{ds}.png'
+    return send_file(buf, as_attachment=True, download_name=fname, mimetype='image/png')
+
+
+# ═══════════════════════════════════════════════════════════════
 # v1.2: 관리자 통합 대시보드 (설비 PM + 개선제안)
 # ═══════════════════════════════════════════════════════════════
 import db_pg
@@ -3268,23 +3677,54 @@ def equipment_dashboard():
                 "SELECT COUNT(*) c FROM eq_issues WHERE status='완료' "
                 "AND DATE_TRUNC('month', closed_at)=DATE_TRUNC('month', CURRENT_DATE)")['c'],
         }
-        # 진행중 이슈 (최근 30)
+        # 진행중 이슈 (최근 30) — 건별 진행상황을 볼 수 있게 이력도 함께 배치조회(2026-07-21).
+        # 접수자/담당자·예상완료(eta_at)도 같이 내려 요청자가 무작정 기다리지 않게 한다.
         issues = db_pg.query("""
-            SELECT issue_id, occurred_at, eq_id, process_id, major_type, detail, status
+            SELECT issue_id, occurred_at, eq_id, process_id, major_type, detail, status,
+                   reporter_name, current_owner_name AS owner_name, eta_at
             FROM eq_issues WHERE status IN ('신규','이관','점검중')
             ORDER BY occurred_at DESC LIMIT 30
         """)
+        hist_map = db_pg.eq_issue_histories_for([r['issue_id'] for r in issues])
+        for r in issues:
+            r['history'] = hist_map.get(r['issue_id'], [])
+            r['eta_label'] = db_pg.fmt_eta(r.get('eta_at'))
         # 공정별 이슈 빈도 (이번 달)
         by_process = db_pg.query("""
             SELECT process_id, COUNT(*) c FROM eq_issues
             WHERE DATE_TRUNC('month', occurred_at) = DATE_TRUNC('month', CURRENT_DATE)
             GROUP BY process_id ORDER BY c DESC LIMIT 10
         """)
+        # 정기점검(PM) — 허브(eq_maint_schedule)와 같은 mjt DB를 직접 조회(2026-07-20 신설).
+        # "이번달 예정/기한초과"를 KPI에도 얹어 상시 표기되게 한다(요청사항: 놓치지 않도록).
+        pm = db_pg.eqmaint_dashboard()
+        kpi['pm_overdue'] = len(pm['overdue'])
+        kpi['pm_upcoming'] = len(pm['upcoming'])
+        # 공장별(MJ/SCS/CnB) KPI 소계 — 2026-07-21 팀장님 요청("숫자만 있어서 의미가 없다")
+        kpi_by_factory = db_pg.eq_kpi_by_factory()
         return render_template('equipment.html',
-                               kpi=kpi, issues=issues, by_process=by_process,
+                               kpi=kpi, issues=issues, by_process=by_process, pm=pm,
+                               kpi_by_factory=kpi_by_factory,
+                               pm_msg=request.args.get('pm_msg'), pm_ok=request.args.get('pm_ok'),
                                updated=datetime.now(KST).strftime('%H:%M'))
     except Exception as e:
         return render_template('error.html', error=f'설비 대시보드: {e}')
+
+
+@app.route('/equipment/pm/<int:sid>/complete', methods=['POST'])
+def equipment_pm_complete(sid):
+    """정기점검 완료 처리(모바일) — 담당자(로그인 본인)+점검결과 메모를 받아야 처리되고,
+    처리 즉시 이력(eq_maint_log)에 남으며 다음 점검일이 주기만큼 자동으로 밀린다."""
+    emp_id = session.get('emp_id')
+    if not emp_id:
+        return redirect(url_for('login', next='/equipment'))
+    done_by = session.get('emp_name') or emp_id
+    note = (request.form.get('note') or '').strip()
+    if not note:
+        return redirect(url_for('equipment_dashboard', pm_msg='점검 결과를 입력해야 완료 처리됩니다.', pm_ok=0))
+    ok = db_pg.eqmaint_complete(sid, done_by, note)
+    msg = '점검 완료 처리했습니다.' if ok else '처리할 수 없는 항목입니다(이미 삭제되었을 수 있음).'
+    return redirect(url_for('equipment_dashboard', pm_msg=msg, pm_ok=(1 if ok else 0)))
 
 
 @app.route('/equipment/search')
