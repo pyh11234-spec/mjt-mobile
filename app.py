@@ -922,6 +922,24 @@ def save_today_menu(ds: str, menu: str):
         _cache.pop(f'menu_{ds}', None)
 
 
+def _wkend_deadline_disp(w: dict) -> str:
+    """마감(deadline 전체일시 또는 day_deadline 당일시각)을 화면 표시용 문구로."""
+    dl = (w.get('deadline') or '').strip()
+    if dl:
+        try:
+            d = datetime.strptime(dl, '%Y-%m-%d %H:%M')
+            wd = '월화수목금토일'[d.weekday()]
+            same_day = d.strftime('%Y-%m-%d') == w.get('date')
+            prefix = '' if same_day else f'{d.month}/{d.day}({wd}) '
+            return f'⏰ 신청 마감: {prefix}{d.strftime("%H:%M")}까지'
+        except ValueError:
+            pass
+    ddl = (w.get('day_deadline') or '').strip()
+    if ddl:
+        return f'⏰ 신청 마감: 당일 {ddl}까지'
+    return ''
+
+
 def get_wkend_plan() -> list:
     """다가오는(오늘 이후) 특근 식사 운영일 목록.
     '특근운영설정' 시트 [날짜, mode, 지원금, 안내] 에서 mode가 '없음'/빈값이 아닌 날짜만."""
@@ -930,7 +948,10 @@ def get_wkend_plan() -> list:
         try:
             import db_pg
             if db_pg.is_available():
-                return db_pg.wkend_plan(_today_kst().isoformat())
+                rows = db_pg.wkend_plan(_today_kst().isoformat())
+                for r in rows:
+                    r['deadline_disp'] = _wkend_deadline_disp(r)
+                return rows
         except Exception:
             pass
         # 폴백: Sheets
@@ -959,7 +980,8 @@ def get_wkend_plan() -> list:
             wd = '월화수목금토일'[d.weekday()]
             # Sheets 레거시엔 슬롯 구분이 없어 오전 슬롯 하나로 취급(오후는 미운영)
             out.append({'date': ds, 'weekday': wd, 'am_mode': mode, 'pm_mode': '없음',
-                        'day_deadline': '', 'support': support, 'notice': notice})
+                        'deadline': '', 'day_deadline': '', 'deadline_disp': '',
+                        'support': support, 'notice': notice})
         out.sort(key=lambda x: x['date'])
         return out[:6]
     return _cached('wkend_plan', _f, ttl=180)
@@ -3100,6 +3122,19 @@ def api_wkend_request():
             return jsonify({'ok': False, 'error': '오늘 특근 근로 신청자가 아닙니다(근태 특근 등록 필요)'})
     except Exception:
         pass
+
+    # ★2026-07-24: 사전 신청 마감(deadline, 'YYYY-MM-DD HH:MM') — 데스크탑(meal_check.py)은
+    # 이미 이 필드를 절대시각으로 검사해 "당일/전날(-1일)" 마감을 자유롭게 지원하는데(예:
+    # 토요일 특근이면 deadline='금요일 날짜 18:00'로 설정), 모바일은 이 필드를 아예 확인하지
+    # 않아 데스크탑에서 막힌 신청이 모바일에선 계속 받아지는 불일치가 있었음 — 데스크탑과
+    # 동일 로직으로 맞춤(관리자 설정 화면은 데스크탑 그대로 재사용, 모바일에 새로 안 만듦).
+    dl = (setting.get('deadline') or '').strip()
+    if dl:
+        try:
+            if datetime.now(KST).replace(tzinfo=None) > datetime.strptime(dl, '%Y-%m-%d %H:%M'):
+                return jsonify({'ok': False, 'error': f'특근 식사 신청이 마감되었습니다. (마감 {dl})'})
+        except ValueError:
+            pass
 
     # 당일 신청 제한시각(day_deadline 'HH:MM') — 당일 그 시각 지나면 차단
     ddl = (setting.get('day_deadline') or '').strip()

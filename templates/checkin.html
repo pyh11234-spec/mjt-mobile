@@ -59,6 +59,7 @@
           <span class="wk-sup">지원 {{ "{:,}".format(w.support) }}원</span>
         </div>
         {% if w.notice %}<div class="wk-notice">{{ w.notice }}</div>{% endif %}
+        {% if w.deadline_disp %}<div class="wk-notice" style="color:#F59E0B">{{ w.deadline_disp }}</div>{% endif %}
         {% if slot_mode == '중국집' %}
         <select class="wk-menu" data-date="{{ w.date }}" data-slot="{{ slot_name }}">
           <option value="">메뉴 선택…</option>
