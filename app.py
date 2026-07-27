@@ -606,6 +606,39 @@ def api_desktop_equip_call():
         return jsonify(ok=False, msg=str(e)), 500
 
 
+# ── 데스크탑 소모품 RPC — 서버가 부모 supplies_repo를 그대로 실행. 화이트리스트 필수 ──
+# 2026-07-27: supplies_repo.py의 API모드 프록시(_PUBLIC)는 2026-07-22부터 클라이언트에
+#   있었으나 이 서버 라우트가 누락돼 있어, API모드로 빌드된 근태관리 exe에서 소모품 화면
+#   진입 시 전부 404로 실패하던 버그를 수정(팀장님 제보 — "보관처 조회 실패: None").
+_SUPPLIES_RPC_ALLOW = {
+    'search_items', 'get_item', 'item_photos', 'photo_data', 'request_photo_data',
+    'list_locations', 'create_location', 'list_categories', 'list_recent_order_lines',
+    'list_suppliers', 'list_requests', 'get_request',
+    'list_pending_receipts', 'list_stock', 'list_history',
+    'create_request', 'change_status', 'receive_request', 'is_available',
+}
+
+@app.route('/api/desktop/supplies/call', methods=['POST'])
+def api_desktop_supplies_call():
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    b = request.get_json(silent=True) or {}
+    fn = (b.get('fn') or '').strip()
+    if fn not in _SUPPLIES_RPC_ALLOW:
+        return jsonify(ok=False, msg=f'허용되지 않은 fn: {fn}'), 400
+    try:
+        import sys as _s, os as _o
+        _p = _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))
+        if _p not in _s.path:
+            _s.path.insert(0, _p)
+        import supplies_repo
+        res = getattr(supplies_repo, fn)(*(b.get('args') or []), **(b.get('kwargs') or {}))
+        return jsonify(ok=True, result=res)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e)), 500
+
+
 @app.route('/api/health')
 def api_health():
     """헬스체크 (UptimeRobot 용 — 인증 면제)."""
