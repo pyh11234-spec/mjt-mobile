@@ -5,7 +5,7 @@ Google Sheets 데이터를 모바일 브라우저로 조회 + 오늘 메뉴 등�
 import os, json, base64, time, threading, secrets, io, re, functools
 from datetime import datetime, date, timedelta, timezone
 from collections import defaultdict
-from flask import Flask, render_template, jsonify, request, redirect, url_for, session, send_file
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session, send_file, Response
 
 import gspread
 from gspread.exceptions import WorksheetNotFound
@@ -1911,6 +1911,50 @@ def index():
         )
     except Exception as e:
         return render_template('error.html', error=str(e))
+
+
+@app.route('/manual')
+def manual_view():
+    """전사 프로그램 사용법 매뉴얼 열람(2026-07-28) — 콘텐츠는 허브(통합관리시스템)에
+    중앙 저장돼 있고, 이 라우트는 이미 로그인된 본인 사번을 허브에 다시 보내 실제
+    관리자 role인지 재검증받은 뒤에만 내용을 보여준다(새 비밀번호·새 계정 없이 기존
+    AppRole 레지스트리를 그대로 재사용)."""
+    import urllib.request, urllib.error, urllib.parse, json as _json
+    emp_id = session.get('emp_id', '')
+    # ★2026-07-28: 허브와 이 앱이 같은 서버(192.168.0.71) 안에 있는데도 공개 도메인
+    # (Cloudflare 터널)을 거쳐 자기 자신을 호출하다가 403(비JSON 응답 — 터널/WAF 단에서
+    # 막히는 것으로 추정)이 났음. 같은 서버 안에서는 localhost로 직접 호출해 터널을
+    # 아예 거치지 않게 우회(더 빠르기도 함). MJT_HUB_LOCAL_URL로 재정의 가능.
+    hub = os.environ.get('MJT_HUB_LOCAL_URL', 'http://127.0.0.1:8730').rstrip('/')
+    key = os.environ.get('MJT_API_KEY', '')
+    slug = request.args.get('slug', 'siksu-manual')
+    if not (hub and key):
+        return render_template('error.html', error='허브 연동 설정(MJT_HUB_LOCAL_URL/MJT_API_KEY)이 없습니다.')
+    url = '%s/api/manuals/%s?emp_id=%s' % (hub, urllib.parse.quote(slug), urllib.parse.quote(emp_id))
+    req = urllib.request.Request(url, headers={'X-API-Key': key})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = _json.loads(r.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        try:
+            data = _json.loads(e.read().decode('utf-8'))
+        except Exception:
+            data = {'ok': False, 'msg': 'HTTP %s' % e.code}
+    except Exception as e:
+        # ★2026-07-28 보안검토: 원본 예외 텍스트를 그대로 보여주면 내부 허브 주소·본인
+        # 사번이 화면에 노출된다 — 사용자에겐 일반 메시지만, 상세는 서버 로그로만 남긴다.
+        app.logger.warning('매뉴얼 허브 연결 실패(emp_id=%s slug=%s): %s', emp_id, slug, e)
+        return render_template('error.html', error='매뉴얼 서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.')
+    if not data.get('ok'):
+        return render_template('error.html',
+            error=data.get('msg', '이 매뉴얼을 열람할 권한이 없습니다(관리자만 열람 가능).'))
+    html = '<!doctype html><html lang="ko">' + data.get('html_body', '') + '</html>'
+    # ★편집 UI가 허브에 생긴 지금부터, 저장된 HTML에 스크립트가 섞여 들어와도 실행되지
+    # 않도록 CSP로 원천 차단(현재 매뉴얼은 스타일만 쓰고 스크립트가 필요 없어 안전).
+    resp = Response(html, mimetype='text/html')
+    resp.headers['Content-Security-Policy'] = (
+        "default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; script-src 'none'")
+    return resp
 
 
 @app.route('/overtime')
