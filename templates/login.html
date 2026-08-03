@@ -2,6 +2,53 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
+  <script>
+  // ── 문제 브라우저 자동 감지 → 진입 즉시 전환/안내 (2026-08-03) ────────────
+  // 이 로그인 페이지가 QR/카톡 공유 링크의 실제 최초 진입점(/가 여기로 리다이렉트) —
+  // base.html의 동일 로직은 로그인 "이후"에만 실행되므로 여기 없으면 정작 필요한
+  // 순간(삼성인터넷·카톡 인앱으로 처음 들어왔을 때)에 전혀 작동하지 않는다.
+  // 안드로이드(삼성인터넷·카톡/네이버/페북/라인 인앱): intent:// 로 Chrome 즉시 강제 실행.
+  // iOS 인앱: OS 정책상 강제 전환 방법이 없어 큰 안내를 즉시 띄움(#hub 로그인 페이지에서
+  // 발견한 동일 패턴의 사내메신저/허브 픽스와 같은 원리).
+  (function () {
+    var ua = navigator.userAgent;
+    var isAndroid = /Android/.test(ua);
+    var isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+    var isSamsung = /SamsungBrowser/.test(ua);
+    var isInApp = /KAKAOTALK/i.test(ua) || /NAVER\(inapp/i.test(ua) ||
+                  /FBAN|FBAV|Instagram/i.test(ua) || /Line\//i.test(ua);
+    var isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                       window.navigator.standalone === true;
+    if (isStandalone) return;
+    try {
+      if (sessionStorage.getItem('mjt_auto_browser_fix')) return;
+      sessionStorage.setItem('mjt_auto_browser_fix', '1');
+    } catch (e) {}
+
+    if (isAndroid && (isSamsung || isInApp)) {
+      var noScheme = location.href.replace(/^https?:\/\//, '');
+      location.href = 'intent://' + noScheme + '#Intent;scheme=https;package=com.android.chrome;' +
+        'S.browser_fallback_url=' + encodeURIComponent('https://' + noScheme) + ';end';
+    } else if (isIOS && isInApp) {
+      document.addEventListener('DOMContentLoaded', function () {
+        var box = document.createElement('div');
+        box.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.94);' +
+          'display:flex;align-items:center;justify-content:center;padding:24px';
+        box.innerHTML =
+          '<div style="background:#fff;border-radius:16px;padding:26px 22px;max-width:340px;' +
+          'text-align:center;line-height:1.7;font-family:inherit">' +
+          '<div style="font-weight:800;font-size:17px;color:#C9A227;margin-bottom:10px">' +
+          '이 화면에서는 로그인이 안 돼요</div>' +
+          '<div style="font-size:15px;color:#1A1A1A">오른쪽 위 <b>⋯</b> 또는 <b>⌄</b> 를 눌러<br>' +
+          '<b style="font-size:16px">"Safari로 열기"</b>를 선택해 주세요.</div>' +
+          '<button type="button" style="margin-top:16px;padding:10px 22px;border:none;border-radius:8px;' +
+          'background:#EDEAE3;font-weight:700;font-size:14px" ' +
+          'onclick="this.parentElement.parentElement.remove()">확인</button></div>';
+        document.body.appendChild(box);
+      });
+    }
+  })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <meta name="theme-color" content="#F5F2EC">
   <meta name="apple-mobile-web-app-capable" content="yes">

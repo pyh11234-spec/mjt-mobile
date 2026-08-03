@@ -360,9 +360,8 @@
       if(sessionStorage.getItem('mjt_splash_seen')){ sp.remove(); return; }  // 세션 중 재진입엔 생략
       sessionStorage.setItem('mjt_splash_seen','1');
     }catch(e){}
-    var _out=function(){ sp.classList.add('mjt-splash-out'); };
-    window.addEventListener('load',function(){ setTimeout(_out,1800); });  // 1.8s
-    setTimeout(_out,3300);  // 안전장치(load 지연 대비)
+    // 리소스 로드(load)와 무관하게 고정 1.8초 — 외부 CDN 대기로 스플래시가 길어지지 않게
+    setTimeout(function(){ sp.classList.add('mjt-splash-out'); }, 1800);
   })();
 </script>
 
@@ -420,7 +419,7 @@
       done:function(){ try{localStorage.setItem(KEY,'1');}catch(e){} if(ov)ov.hidden=true; }
     };
   })();
-  window.addEventListener('load',function(){ setTimeout(function(){ mjtOb.start(); }, 1600); });  // 스플래시 뒤 시작
+  setTimeout(function(){ mjtOb.start(); }, 2100);  // 스플래시(1.8s) 뒤 시작 (load 무관)
 </script>
 {% endif %}
 
@@ -711,6 +710,38 @@ function closeInstallGuide(ev) {
 // iOS는 beforeinstallprompt가 안 뜨므로 직접 안내 (한 번만)
 if (_isIOS && !_isStandalone && !_dismissed) {
   setTimeout(() => _showInstallBanner('ios'), 1500);
+}
+
+// ── 문제 브라우저 자동 감지 → 진입 즉시 전환/안내 (2026-08-03) ──────────────
+// 배경(팀장님 지시): "앱으로 설치하는 방향으로 유도해줘야되" + "안드로이드는 무조건
+// 크롬으로 접속되게, 삼성인터넷/카카오톡 링크는 애초에 크롬으로 접속되게 해줘야되".
+// 기존엔 헤더 [앱설치] 칩을 사용자가 직접 찾아 눌러야만 안내가 떴는데, 나이 많으신
+// 분들은 그 칩을 못 찾거나 눌러볼 생각을 안 해 평생 삼성인터넷/카톡 인앱으로만 쓰게
+// 됨. 이제 페이지 진입 즉시 자동으로 전환을 시도한다.
+// - 안드로이드(삼성인터넷·카톡/네이버/페북/라인 인앱): intent:// 로 Chrome을 즉시
+//   강제 실행(버튼 누를 필요 없음, 이미 설치된 Chrome이 있으면 바로 넘어감).
+// - iOS 인앱 브라우저: OS 정책상 다른 앱 안에서 Safari를 프로그램적으로 강제 실행하는
+//   방법이 없음(애플이 막아둠) — 대신 진입 즉시 큰 안내를 띄워 "Safari로 열기" 메뉴
+//   위치를 바로 보여준다(칩을 눌러야만 나오던 것을 자동으로).
+// 세션당 1회만 시도 — 무한 리다이렉트/반복 안내 방지.
+if (!_isStandalone && !sessionStorage.getItem('mjt_auto_browser_fix')) {
+  sessionStorage.setItem('mjt_auto_browser_fix', '1');
+  if (_isAndroid && (_isSamsung || _isInApp)) {
+    _openInChrome();
+  } else if (_isIOS && _isInApp) {
+    setTimeout(function () {
+      const body = document.getElementById('install-guide-body');
+      const btn = document.getElementById('install-guide-btn');
+      if (!body || !btn) return;
+      body.innerHTML =
+        '<b style="color:#C9A227;font-size:16px">이 화면에서는 앱 설치가 안 돼요</b><br><br>' +
+        '<b>오른쪽 위 <span style="font-size:20px">⋯</span> 또는 <span style="font-size:20px">⌄</span></b> 를 눌러<br>' +
+        '<b style="font-size:16px">"Safari로 열기"</b>를 선택해 주세요.<br><br>' +
+        '<span style="color:#94A3B8;font-size:12px">Safari로 열리면 앱 설치 안내가 이어서 나옵니다.</span>';
+      btn.style.display = 'none';
+      document.getElementById('install-guide-modal').style.display = 'flex';
+    }, 500);
+  }
 }
 </script>
 
