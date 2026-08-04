@@ -3402,6 +3402,160 @@ def api_guest_request():
         return jsonify({'ok': False, 'error': str(e)})
 
 
+# ── 특근/잔업/휴가 개인 신청 (모바일 자율등록, 2026-08-04) ──────────────────
+# 팀장님 지시: "일단 하나씩" — 결재라인(파트장/그룹장/팀장 자동판단)은 조직도 안정화
+# 이후로 미루고, 지금은 ① 개인이 직접 등록 ② 등록되면 상위라인 관리자(당장은
+# APPROVAL_CFG의 공장별 그룹장)에게 "신청됐다"는 메신저 알림만 ③ 특근은 이미 구축된
+# 그룹장→사장 주간 결재 화면(attendance.py approval.py)으로 그대로 흘러들어가게(신규
+# 승인 로직 추가 안 함 — attendance_records에 기존과 동일하게 적재하면 자동으로 잡힘).
+# 잔업/휴가/연차 등은 등록 후 협의든 사전 협의든 자율 — 시스템이 승인을 막지 않는다.
+_ATT_REQ_TYPES = {
+    '특근':     {'is_ot': True,  'value': None},
+    '잔업':     {'is_ot': True,  'value': None},
+    '연차':     {'is_ot': False, 'value': 1.0},
+    '오전반차': {'is_ot': False, 'value': 0.5},
+    '오후반차': {'is_ot': False, 'value': 0.5},
+    '탄력오전': {'is_ot': False, 'value': 0.5},
+    '탄력오후': {'is_ot': False, 'value': 0.5},
+    '계절휴가': {'is_ot': False, 'value': 1.0},
+    '하계휴가': {'is_ot': False, 'value': 1.0},
+    '기휴':     {'is_ot': False, 'value': 1.0},
+}
+
+
+def _notify_messenger(emp_id, title, body, source='siksu-att_request'):
+    """허브 /api/notify/messenger 게이트웨이로 사내메신저 DM 발송(duty_mail.py의
+    _notify_via_hub와 동일 패턴 — 같은 서버 안이라 로컬 주소로 터널 우회)."""
+    import json as _json
+    import urllib.request
+    hub = os.environ.get('MJT_HUB_LOCAL_URL', 'http://127.0.0.1:8730').rstrip('/')
+    key = os.environ.get('MJT_API_KEY', '').strip()
+    if not key:
+        return False, 'MJT_API_KEY 미설정'
+    payload = {'emp_id': emp_id, 'title': title, 'body': body, 'source': source}
+    try:
+        req = urllib.request.Request(
+            hub + '/api/notify/messenger',
+            data=_json.dumps(payload, default=str).encode('utf-8'), method='POST',
+            headers={'Content-Type': 'application/json', 'X-API-Key': key})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            res = _json.loads(r.read().decode('utf-8'))
+        return bool(res.get('ok')), res.get('msg', '')
+    except Exception as e:
+        return False, str(e)
+
+
+def _grp_leader_emp_id(factory_key):
+    """'상위라인 관리자'(당장은 그룹장) 사번 — APPROVAL_CFG 이름을 사원마스터에서 찾음."""
+    name = APPROVAL_CFG.get(factory_key, {}).get('grp', {}).get('name', '')
+    if not name:
+        return None
+    for e in get_employees():
+        if str(e.get('성명', '')).strip() == name:
+            return str(e.get('사원번호', '')).strip() or None
+    return None
+
+
+@app.route('/att_request')
+def att_request_view():
+    emp_id = session.get('emp_id', '')
+    if not emp_id:
+        return redirect('/login')
+    return render_template('att_request.html',
+                           emp_name=session.get('emp_name', ''), emp_id=emp_id,
+                           req_types=list(_ATT_REQ_TYPES.keys()),
+                           today_ds=_today_kst().strftime('%Y-%m-%d'))
+
+
+@app.route('/api/att_request', methods=['POST'])
+def api_att_request():
+    body     = request.get_json(silent=True) or {}
+    emp_id   = (session.get('emp_id') or '').strip()   # 로그인 본인만 — 대리신청 차단
+    att_type = (body.get('att_type') or '').strip()
+    ds       = (body.get('date') or '').strip()
+    time_from = (body.get('time_from') or '').strip()
+    time_to   = (body.get('time_to') or '').strip()
+    reason   = (body.get('reason') or '').strip()
+    note_in  = (body.get('note') or '').strip()
+
+    if not emp_id:
+        return jsonify({'ok': False, 'error': '로그인이 필요합니다'})
+    if att_type not in _ATT_REQ_TYPES:
+        return jsonify({'ok': False, 'error': '신청 종류를 선택하세요'})
+    try:
+        d = datetime.strptime(ds, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'ok': False, 'error': '날짜 형식 오류'})
+    if not reason:
+        return jsonify({'ok': False, 'error': '신청 사유는 필수입니다'})
+
+    cfg = _ATT_REQ_TYPES[att_type]
+    rest = None
+    if cfg['is_ot']:
+        if not time_from or not time_to:
+            return jsonify({'ok': False, 'error': '근무 시작·종료 시각을 선택하세요'})
+        try:
+            fh, fm = (int(x) for x in time_from.split(':'))
+            th, tm = (int(x) for x in time_to.split(':'))
+        except Exception:
+            return jsonify({'ok': False, 'error': '시각 형식 오류'})
+        start_min = fh * 60 + fm
+        end_min = th * 60 + tm
+        if end_min <= start_min:
+            end_min += 1440   # 익일로 넘어가는 근무(예: 22:00~06:00)
+        value = round((end_min - start_min) / 60.0, 2)
+        note_final = f'[{time_from}~{time_to}] {reason}' + (f' / {note_in}' if note_in else '')
+        import db_pg
+        if db_pg.is_available():
+            rest = db_pg.rest_check(emp_id, ds, time_from)
+            if not rest['ok']:
+                note_final += (f' [⚠11.5H연속휴식 미달 — 전날퇴근 {rest["prev_end"]}, '
+                               f'{rest["earliest_ok"]} 이후 시작 권장]')
+    else:
+        value = cfg['value']
+        note_final = reason + (f' / {note_in}' if note_in else '')
+
+    emps = get_employees()
+    emp = next((e for e in emps if str(e.get('사원번호', '')).strip() == emp_id), None)
+    if not emp:
+        return jsonify({'ok': False, 'error': '사원 정보를 찾을 수 없습니다'})
+    emp_name = emp.get('성명', '')
+    dept = emp.get('부서명', '')
+    rank = emp.get('직급', '')
+    factory_key = 'MJ' if emp_id.upper().startswith('M') else 'SCS'
+    factory = '1공장' if emp_id.upper().startswith('M') else '2공장'   # attendance_records 기존 표기와 통일
+
+    import db_pg
+    if not db_pg.is_available():
+        return jsonify({'ok': False, 'error': '서버 DB 연결 불가 — 잠시 후 다시 시도해주세요'})
+    try:
+        db_pg.add_att_request(d.year, d.month, ds, factory, dept, emp_id, emp_name, rank,
+                              att_type, value, note_final)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'저장 실패: {e}'})
+
+    # 상위라인 관리자(그룹장)에게 "신청됐다"는 알림만 — 승인 액션 아님(#0.7 자동화, 사람이
+    # 기억 안 해도 되게). 특근은 기존 그룹장→사장 주간 결재 화면에서 별도로 검토됨.
+    grp_id = _grp_leader_emp_id(factory_key)
+    if grp_id:
+        val_txt = f'{value}시간' if cfg['is_ot'] else f'{value}일'
+        title = f'📝 {emp_name}님 {att_type} 신청'
+        lines = [f'{emp_name}({emp_id}) · {dept}', f'{ds} · {att_type} {val_txt}', f'사유: {reason}']
+        if cfg['is_ot']:
+            lines.insert(2, f'시간: {time_from}~{time_to}')
+        if rest and not rest['ok']:
+            lines.append(f'⚠ 11.5시간 연속휴식 미달(전날 퇴근 {rest["prev_end"]}, '
+                         f'{rest["earliest_ok"]} 이후 시작 권장) — 확인 필요')
+        _notify_messenger(grp_id, title, '\n'.join(lines))
+
+    warn = None
+    if rest and not rest['ok']:
+        warn = (f'⚠ 11.5시간 연속휴식 기준 미달입니다(전날 퇴근 {rest["prev_end"]} 기준 '
+                f'{rest["earliest_ok"]} 이후 시작 권장). 신청은 접수됐고 상위 관리자에게도 '
+                '함께 안내됐습니다.')
+    return jsonify({'ok': True, 'msg': f'{att_type} 신청이 접수됐습니다.', 'warn': warn})
+
+
 @app.route('/api/duty')
 def api_duty():
     """당직자 목록 API."""

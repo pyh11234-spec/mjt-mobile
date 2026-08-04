@@ -335,6 +335,84 @@ def is_weekend_worker(ds: str, emp_id: str) -> bool:
                      (ds, emp_id)) is not None
 
 
+# ── 특근/잔업/휴가 개인 신청 (모바일 자율등록, 2026-08-04) ──────────────────
+# 팀장님 지시: "일단 하나씩" — 근태프로그램(attendance.py)의 add_att()과 완전히 동일한
+# attendance_records 스키마를 그대로 재사용한다(새 테이블 안 만듦). 그래서 특근은 별도
+# 연동 코드 없이도 기존 그룹장→사장 주간 결재 화면(approval.py, att_repo.appr_load_records
+# — att_type+날짜범위로만 조회)에 자동으로 잡힌다. source='모바일신청'으로만 관리자
+# 수기입력과 구분(조회 표시용, 로직 분기 없음).
+MIN_REST_HOURS = 11.5  # attendance.py와 동일 상수(특별연장근로 인가 건강보호조치)
+
+
+def add_att_request(year, month, ds, factory, dept, eid, name, rank,
+                    att_type, value, note, source='모바일신청') -> bool:
+    try:
+        val = float(value) if str(value).strip() not in ('', 'None') else None
+    except (TypeError, ValueError):
+        val = None
+    execute(
+        "INSERT INTO attendance_records "
+        "(year, month, att_date, factory, dept, emp_id, emp_name, rank, "
+        "att_type, value, note, source, admin_name) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (int(year), int(month), ds, factory, dept, eid, name, rank,
+         att_type, val, note, source, name))
+    return True
+
+
+def prev_workday_end(eid: str, ds: str):
+    """ds 전날 근무 종료시각(HH:MM) 추정 — attendance.py _do_save의 11.5H 연속휴식 검열과
+    동일 로직(전날 OT 기록 있으면 그 종료시각, 없고 평일+종일휴가 아니면 표준퇴근 17:00,
+    그 외(주말/종일휴가)면 None=계산 제외)."""
+    import re as _re
+    try:
+        cur = _date.fromisoformat(ds)
+    except Exception:
+        return None
+    prev = cur - _timedelta(days=1)
+    rows = query("SELECT att_type, value, note FROM attendance_records "
+                "WHERE emp_id=%s AND att_date=%s", (eid, prev.isoformat()))
+    ends, full_leave = [], False
+    for r in rows:
+        atype = r['att_type']
+        if atype in ('잔업', '특근'):
+            mm = _re.search(r'\[(\d{1,2}:\d{2})\s*~\s*(\d{1,2}:\d{2})\]', r['note'] or '')
+            if mm:
+                ends.append(mm.group(2))
+        elif atype in ('연차', '계절휴가', '하계휴가', '기휴'):
+            try:
+                if float(r['value'] or 0) >= 1.0:
+                    full_leave = True
+            except (TypeError, ValueError):
+                pass
+    if ends:
+        return max(ends)
+    if prev.weekday() < 5 and not full_leave:
+        return '17:00'
+    return None
+
+
+def rest_check(eid: str, ds: str, start_hhmm: str):
+    """반환 dict: {'ok':bool, 'gap_h':float|None, 'prev_end':str|None, 'earliest_ok':str|None}.
+    prev_workday_end()이 None이면(주말/종일휴가 다음날) 검사 대상 아님 → ok=True."""
+    prev_end = prev_workday_end(eid, ds)
+    if not prev_end:
+        return {'ok': True, 'gap_h': None, 'prev_end': None, 'earliest_ok': None}
+
+    def _to_min(hhmm):
+        h, m = hhmm.split(':')
+        return int(h) * 60 + int(m)
+    pe_min = _to_min(prev_end)
+    ns_min = _to_min(start_hhmm)
+    gap_h = ((1440 - pe_min) + ns_min) / 60.0
+    if gap_h < MIN_REST_HOURS:
+        earliest_min = pe_min + int(round(MIN_REST_HOURS * 60))
+        eh, em = divmod(earliest_min % 1440, 60)
+        return {'ok': False, 'gap_h': round(gap_h, 1), 'prev_end': prev_end,
+                'earliest_ok': f'{eh:02d}:{em:02d}'}
+    return {'ok': True, 'gap_h': round(gap_h, 1), 'prev_end': prev_end, 'earliest_ok': None}
+
+
 # ── 주간 당직 메일 자동발송 (서버 측) ─────────────────────────────
 def duties_between(d_from: str, d_to: str) -> list:
     """기간 내 당직 배정(날짜 오름차순)."""

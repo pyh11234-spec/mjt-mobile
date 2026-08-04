@@ -1,0 +1,172 @@
+{% extends 'base.html' %}
+{% set page = 'att_request' %}
+{% block content %}
+
+<div style="margin:10px 12px 0">
+  <a href="/all" style="color:#94A3B8;text-decoration:none;font-size:13px">← 전체 메뉴</a>
+</div>
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">⏰ 특근·잔업·휴가 신청</div>
+    <div class="pg-sub">{{ emp_name }}님 ({{ emp_id }})</div>
+  </div>
+</div>
+
+<style>
+.form-card { margin: 12px; padding: 16px; background: var(--card);
+             border: 1px solid var(--border); border-radius: 14px; }
+.form-card .form-lbl {
+  display: block; font-size: 11px; color: var(--text2); margin-bottom: 4px;
+  font-weight: 600; letter-spacing: 0.03em;
+}
+.form-card select,
+.form-card input,
+.form-card textarea {
+  width: 100%; padding: 11px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text); font-size: 14px;
+  margin-bottom: 14px; outline: none;
+  transition: border-color 0.15s;
+  font-family: inherit;
+}
+.form-card textarea { resize: vertical; min-height: 64px }
+.form-card select:focus,
+.form-card input:focus,
+.form-card textarea:focus { border-color: var(--gold); }
+.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn-submit {
+  width: 100%; padding: 14px;
+  background: linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%);
+  border: none; border-radius: 10px;
+  color: white; font-size: 15px; font-weight: 700;
+  cursor: pointer; margin-top: 4px;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.btn-submit:active { transform: translateY(1px); }
+.btn-submit:disabled { opacity: 0.5; }
+.notice {
+  background: rgba(252, 211, 77, 0.1);
+  border-left: 3px solid var(--gold);
+  padding: 10px 12px;
+  border-radius: 0 8px 8px 0;
+  font-size: 12px; color: var(--gold);
+  margin: 12px; line-height: 1.6;
+}
+.result {
+  display: none;
+  margin: 12px; padding: 14px;
+  border-radius: 10px; text-align: left;
+  font-size: 13.5px; font-weight: 700; line-height: 1.6;
+}
+.result.ok   { background: rgba(34, 197, 94, 0.15); color: var(--green);
+               border: 1px solid var(--green); }
+.result.warn { background: rgba(251, 191, 36, 0.15); color: #F59E0B;
+               border: 1px solid #F59E0B; margin-top: 8px; }
+.result.err  { background: rgba(239, 68, 68, 0.15); color: var(--red);
+               border: 1px solid var(--red); }
+</style>
+
+<div class="notice">
+  <b>특근</b>은 기존과 동일하게 그룹장→사장 검토를 거칩니다.<br>
+  <b>잔업·휴가·연차 등</b>은 등록 후 필요 시 상위 관리자와 별도로 협의해 주세요(자동 승인 절차 없음).<br>
+  등록되면 상위 관리자에게 신청 사실이 메신저로 자동 안내됩니다.
+</div>
+
+<div class="form-card">
+  <label class="form-lbl">신청 종류</label>
+  <select id="att_type" onchange="toggleOtFields()">
+    {% for t in req_types %}
+    <option value="{{ t }}">{{ t }}</option>
+    {% endfor %}
+  </select>
+
+  <label class="form-lbl">날짜</label>
+  <input type="date" id="req_date" value="{{ today_ds }}">
+
+  <div id="ot_fields">
+    <div class="row-2">
+      <div>
+        <label class="form-lbl">시작 시각</label>
+        <input type="time" id="time_from" value="08:00">
+      </div>
+      <div>
+        <label class="form-lbl">종료 시각</label>
+        <input type="time" id="time_to" value="17:00">
+      </div>
+    </div>
+  </div>
+
+  <label class="form-lbl">신청 사유 (필수)</label>
+  <textarea id="reason" placeholder="예) 납기 대응, 개인 사정 등"></textarea>
+
+  <label class="form-lbl">비고 (선택)</label>
+  <input type="text" id="note" placeholder="추가로 전달할 내용이 있으면 입력">
+
+  <button class="btn-submit" id="submit_btn" onclick="submitAttReq()">신청하기</button>
+</div>
+
+<div class="result" id="result_box"></div>
+<div class="result warn" id="warn_box"></div>
+
+<script>
+function toggleOtFields() {
+  const t = document.getElementById('att_type').value;
+  const isOt = (t === '특근' || t === '잔업');
+  document.getElementById('ot_fields').style.display = isOt ? '' : 'none';
+}
+toggleOtFields();
+
+async function submitAttReq() {
+  const att_type  = document.getElementById('att_type').value;
+  const req_date  = document.getElementById('req_date').value;
+  const time_from = document.getElementById('time_from').value;
+  const time_to   = document.getElementById('time_to').value;
+  const reason    = document.getElementById('reason').value.trim();
+  const note      = document.getElementById('note').value.trim();
+  const res       = document.getElementById('result_box');
+  const warnBox   = document.getElementById('warn_box');
+  const btn       = document.getElementById('submit_btn');
+
+  if (!req_date) { alert('날짜를 선택하세요'); return; }
+  if (!reason)   { alert('신청 사유를 입력하세요'); return; }
+
+  btn.disabled = true; btn.textContent = '신청 중...';
+  warnBox.style.display = 'none';
+  try {
+    const r = await fetch('/api/att_request', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        att_type, date: req_date, time_from, time_to, reason, note
+      })
+    });
+    const data = await r.json();
+    res.style.display = 'block';
+    if (data.ok) {
+      res.className = 'result ok';
+      res.textContent = '✅  ' + data.msg;
+      document.getElementById('reason').value = '';
+      document.getElementById('note').value = '';
+      if (data.warn) {
+        warnBox.style.display = 'block';
+        warnBox.textContent = data.warn;
+      }
+    } else {
+      res.className = 'result err';
+      res.textContent = '⚠  ' + (data.error || '신청 실패');
+    }
+  } catch (e) {
+    res.style.display = 'block';
+    res.className = 'result err';
+    res.textContent = '⚠  네트워크 오류';
+  }
+  btn.disabled = false; btn.textContent = '신청하기';
+  res.scrollIntoView({behavior: 'smooth'});
+}
+</script>
+
+{% endblock %}
