@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% set page = 'equipment' %}
+{% block content %}
+
+{% set sc = {'완료':'#22C55E','신규':'#EF4444','이관':'#F59E0B','점검중':'#3B82F6'}.get(iss.status,'#94A3B8') %}
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">📋 이슈 상세</div>
+    <div class="pg-sub">{{ iss.eq_id }} · <span style="color:{{ sc }};font-weight:700">{{ iss.status }}</span></div>
+  </div>
+  <a href="/equipment/detail/{{ iss.eq_id }}" style="font-size:13px;color:var(--gold);text-decoration:none;padding:6px 12px;border:1px solid var(--gold);border-radius:6px">←</a>
+</div>
+
+<div class="px-3 pt-3">
+  <div class="c-card mb-3" style="padding:14px;font-size:12.5px;line-height:1.8">
+    <div><b style="color:#FCA5A5">증상</b>  {{ iss.detail or iss.major_type or '-' }}</div>
+    {% if iss.cause %}<div><b style="color:#FB923C">원인</b>  {{ iss.cause }}</div>{% endif %}
+    {% if iss.action_taken %}<div><b style="color:#4ADE80">조치</b>  {{ iss.action_taken }}</div>{% endif %}
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);color:var(--text2);font-size:11px">
+      접수 {{ iss.reporter_name or '-' }} ({{ iss.occurred_at.strftime('%Y-%m-%d %H:%M') if iss.occurred_at else '' }})
+      {% if iss.current_owner_name %}<br>담당 {{ iss.current_owner_name }}{% endif %}
+      {% if iss.eta_at %}<br>예상완료 {{ iss.eta_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+      {% if iss.closed_at %}<br>완료 {{ iss.closed_by_name or '-' }} ({{ iss.closed_at.strftime('%Y-%m-%d %H:%M') }}){% endif %}
+    </div>
+  </div>
+
+  <div class="sec-lbl">진행 이력 ({{ hist|length }}건)</div>
+  <div class="c-card mb-3">
+    {% if not hist %}
+      <div class="empty">아직 이력 없음</div>
+    {% else %}
+      <div style="padding:10px 14px;font-size:12px;line-height:1.9">
+        {% for h in hist %}
+        <div>[{{ h.happened_at.strftime('%m/%d %H:%M') if h.happened_at else '' }}] <b>{{ h.stage }}</b> — {{ h.actor_name or '-' }}{% if h.memo %} :: {{ h.memo }}{% endif %}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

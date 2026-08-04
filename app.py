@@ -583,6 +583,7 @@ _EQUIP_RPC_ALLOW = {
     'deactivate_machine', 'delete_machine', 'is_available',
     'issue_detail', 'issue_history', 'issue_status', 'issue_eq_detail',
     'add_issue_history', 'set_issue_inspecting', 'set_issue_complete',
+    'run_escalation_check',
 }
 
 @app.route('/api/desktop/equip/call', methods=['POST'])
@@ -4036,6 +4037,110 @@ def equipment_search():
                                updated=datetime.now(KST).strftime('%H:%M'))
     except Exception as e:
         return render_template('error.html', error=f'검색: {e}')
+
+
+# ── 설비PM 모바일 드릴다운 + 이상접수 (2026-08-04 신설) ────────────────────
+# 팀장님 지시: "설비 하나에 문제가 뭐였는지와 그동안 수리 이력등 프로그램에서만 검색되는
+# 것을 식수모바일에서도 가능하도록", "현장 내 프로그램에서 접수 불가한 상황에서는 모바일을
+# 통하여 접수 가능하도록". 실제 DB write/조회는 equipment_repo.py(데스크탑과 100% 공유)를
+# 그대로 재사용 — 같은 곳에서 만들어 데스크탑·모바일 어느 쪽에서 접수/처리해도 로직이
+# 하나로 유지된다(#36 대칭학습·#18 재구현 금지).
+def _equip_repo():
+    import sys as _s, os as _o
+    _p = _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))
+    if _p not in _s.path:
+        _s.path.insert(0, _p)
+    import equipment_repo
+    return equipment_repo
+
+
+@app.route('/equipment/detail/<eq_id>')
+def equipment_detail(eq_id):
+    """설비 1대 드릴다운 — 기본정보 + 이슈 누적이력 + 정기점검(PM) 일정·완료이력을 한 화면에.
+    데스크탑 전용이던 '설비별 상세'를 모바일에서도 볼 수 있게(팀장님 요청)."""
+    try:
+        eq = _equip_repo().eq_row(eq_id)
+        if not eq:
+            return render_template('error.html', error=f'설비를 찾을 수 없습니다: {eq_id}')
+        issues = _equip_repo().search_history(eq=eq_id, limit=100)
+        pm_rows = db_pg.query(
+            "SELECT id, item, interval_unit, interval_value, last_done_date, next_due_date "
+            "FROM eq_maint_schedule WHERE eq_id=%s AND active=TRUE ORDER BY next_due_date NULLS LAST",
+            (eq_id,))
+        for p in pm_rows:
+            p['logs'] = db_pg.eqmaint_log_for(p['id'], limit=5)
+        return render_template('equipment_detail.html', eq=eq, eq_id=eq_id,
+                               issues=issues, pm_rows=pm_rows,
+                               updated=datetime.now(KST).strftime('%H:%M'))
+    except Exception as e:
+        return render_template('error.html', error=f'설비 상세: {e}')
+
+
+@app.route('/equipment/issue/<int:issue_id>')
+def equipment_issue_detail(issue_id):
+    """이슈 1건 상세 — 완료된 과거 이슈도(대시보드엔 진행중만 뜨므로) 전체 이력과 함께 조회."""
+    try:
+        iss = _equip_repo().issue_detail(issue_id)
+        if not iss:
+            return render_template('error.html', error=f'이슈를 찾을 수 없습니다: {issue_id}')
+        hist = _equip_repo().issue_history(issue_id)
+        return render_template('equipment_issue.html', iss=iss, hist=hist,
+                               updated=datetime.now(KST).strftime('%H:%M'))
+    except Exception as e:
+        return render_template('error.html', error=f'이슈 상세: {e}')
+
+
+@app.route('/equipment/report', methods=['GET', 'POST'])
+def equipment_report():
+    """모바일 이상접수 — 현장 데스크탑 프로그램에 접근 불가한 상황(다른 건물·PC 앞이 아님
+    등)에서도 신고 가능하게. 자체해결 액션은 모바일에서 지원하지 않음(그 자리에서 고쳤으면
+    이미 해결된 것이므로 접수 자체가 급하지 않음) — 항상 '이관'으로 등록해 담당 풀이
+    픽업하게 한다(add_issue_transfer 재사용 → 접수 즉시 알림 풀에 자동 통지, equipment_repo
+    내부에서 처리)."""
+    emp_id = session.get('emp_id', '')
+    if not emp_id:
+        return redirect(url_for('login', next='/equipment/report'))
+    repo = _equip_repo()
+    if request.method == 'GET':
+        machines = repo.all_eq_ids()
+        return render_template('equipment_report.html', machines=machines,
+                               emp_name=session.get('emp_name', ''))
+    # POST
+    eq_id = (request.form.get('eq_id') or '').strip().upper()
+    detail = (request.form.get('detail') or '').strip()
+    cause = (request.form.get('cause') or '').strip()
+    severity = (request.form.get('severity') or '보통').strip()
+    if not eq_id:
+        return render_template('equipment_report.html', machines=repo.all_eq_ids(),
+                               emp_name=session.get('emp_name', ''), err='설비를 선택하세요.')
+    if not detail:
+        return render_template('equipment_report.html', machines=repo.all_eq_ids(),
+                               emp_name=session.get('emp_name', ''), err='증상을 입력하세요.')
+    info = repo.eq_info(eq_id) or {}
+    try:
+        repo.add_issue_transfer(eq_id, info.get('process_id'), detail, cause, severity,
+                                emp_id, session.get('emp_name', ''), info.get('factory'))
+    except Exception as e:
+        return render_template('equipment_report.html', machines=repo.all_eq_ids(),
+                               emp_name=session.get('emp_name', ''), err=f'접수 실패: {e}')
+    return redirect(url_for('equipment_dashboard', pm_msg=f'{eq_id} 이상접수가 접수됐습니다.', pm_ok=1))
+
+
+@app.route('/api/desktop/equip/escalation_check', methods=['POST'])
+def api_equip_escalation_check():
+    """설비PM 기한임박/미해결 자동 에스컬레이션(2026-08-04 신설) — 스케줄러(서버 작업스케줄러)가
+    주기 호출. 미기록알림(missing-clock-alert)과 동일한 X-API-Key 보호 + idempotent 설계.
+    ★경로가 '/api/desktop/'인 이유: 로그인 세션이 없는 서버측 호출이라 _AUTH_EXEMPT_PREFIX의
+    '/api/desktop/' 예외(X-API-Key로 별도 보호)에 태워야 함 — 새 예외를 추가하지 않고 기존
+    미기록알림과 동일 컨벤션 재사용(#6 수평적용)."""
+    ok, code, msg = _api_key_ok()
+    if not ok:
+        return jsonify(ok=False, msg=msg), code
+    try:
+        counts = _equip_repo().run_escalation_check()
+        return jsonify(ok=True, **counts)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e)), 500
 
 
 @app.route('/process')

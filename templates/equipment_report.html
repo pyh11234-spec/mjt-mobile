@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% set page = 'equipment' %}
+{% block content %}
+
+<div class="pg-hd">
+  <div>
+    <div class="pg-title">🚨 설비 이상접수</div>
+    <div class="pg-sub">현장 프로그램 접근이 어려울 때 모바일로 바로 접수</div>
+  </div>
+  <a href="/equipment" style="font-size:13px;color:var(--gold);text-decoration:none;padding:6px 12px;border:1px solid var(--gold);border-radius:6px">←</a>
+</div>
+
+<div class="px-3 pt-3">
+  {% if err %}
+  <div class="c-card mb-3" style="padding:10px 14px;border-left:4px solid #EF4444;font-size:13px;font-weight:700">⚠️ {{ err }}</div>
+  {% endif %}
+
+  <form method="post" action="/equipment/report" class="c-card mb-3" style="padding:14px">
+    <div style="font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:600">설비 *</div>
+    <input list="eq-list" name="eq_id" required placeholder="설비 ID 입력 또는 선택"
+           style="width:100%;padding:11px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;margin-bottom:10px;outline:none">
+    <datalist id="eq-list">
+      {% for m in machines %}<option value="{{ m }}">{% endfor %}
+    </datalist>
+
+    <div style="font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:600">증상 *</div>
+    <textarea name="detail" required rows="3" placeholder="어떤 문제가 있나요? (예: 이상 소음, 누유, 정지)"
+              style="width:100%;padding:11px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;margin-bottom:10px;outline:none;resize:vertical"></textarea>
+
+    <div style="font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:600">추정 원인 (선택)</div>
+    <input type="text" name="cause" placeholder="짐작 가는 원인이 있으면"
+           style="width:100%;padding:11px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;margin-bottom:10px;outline:none">
+
+    <div style="font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:600">심각도</div>
+    <select name="severity"
+            style="width:100%;padding:11px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;margin-bottom:14px">
+      <option value="낮음">낮음 — 당장 멈추지 않음</option>
+      <option value="보통" selected>보통</option>
+      <option value="긴급">긴급 — 즉시 대응 필요</option>
+    </select>
+
+    <button type="submit"
+            style="width:100%;padding:13px;background:linear-gradient(135deg,#FCD34D,#F59E0B);color:#0B1120;border:none;border-radius:8px;font-weight:800;font-size:15px;cursor:pointer">
+      🚨 접수하기
+    </button>
+    <div style="font-size:11px;color:var(--text2);text-align:center;margin-top:8px">접수 즉시 설비담당 풀에 사내메신저로 자동 통지됩니다.</div>
+  </form>
+</div>
+
+{% endblock %}
